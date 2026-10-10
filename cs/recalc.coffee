@@ -32,6 +32,7 @@ recalc_gps = ->
 		new_gps += gen.count * gen.gps
 
 	new_gps *= basedata.sliggoo_gpsmult
+	new_gps *= basedata.prestige_mult
 	new_gps *= basedata.raindance_mult
 	new_gps *= battle.bps_mult
 
@@ -57,6 +58,7 @@ recalc_gpc = ->
 			new_gpc += gen.count * (bloon.level - 80) * 10.0
 
 	new_gpc *= Math.pow(1.1, gens["cursor"].level - 1)
+	new_gpc *= basedata.prestige_mult
 	new_gpc *= basedata.raindance_mult
 	new_gpc *= basedata.frenzy_clickmult
 	new_gpc *= battle.tap_mult

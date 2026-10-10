@@ -19,42 +19,87 @@ class Generator
 
 		@base_cost = 15
 		@cost = @base_cost
-		@lvup_cost = @base_cost * 100
 		@count = 0
 
-		@cost_f = (n) -> Math.floor(@base_cost * Math.pow(n + 10, Math.log(n + 10) / Math.log(10)) / 10)
+		# Purchase cost curve. Each building/monkey can set its own balance
+		# with set_cost(). When nothing is customised the fallback formula is
+		# a 15% compound per owned unit, i.e.
+		#   cost(n) = base_cost * (1 + cost_rate) ^ n
+		@cost_rate = 0.15
+		@cost_fn = null
+
+		@lvup_cost = @base_cost * 100
 
 		gens[name] = this
 		generators.push(this)
 
 	buy: (n) ->
-		for i in [1..n]
-			if basedata.bloons < @cost
+		bought = 0
+		for i in [0...n]
+			if basedata.balance() < @cost
 				recalc()
-				return i-1
-			basedata.bloons -= @cost
+				return bought
+			basedata.spend(@cost)
 			@count += 1
-			@cost = @cost_f(@count)
+			@cost = @buy_cost_for(@count)
+			bought += 1
 		recalc()
-		play_sound("buy") if n > 0
-		return n
+		play_sound("buy") if bought > 0
+		return bought
 
 	sell: (n) ->
-		for i in [1..n]
+		sold = 0
+		for i in [0...n]
 			if @count <= 0
 				recalc()
-				return i-1
+				return sold
 			@count -= 1
-			@cost = @cost_f(@count)
-			basedata.bloons += @cost * 0.25
+			@cost = @buy_cost_for(@count)
+			basedata.earn(@cost * 0.25)
+			sold += 1
 		recalc()
-		play_sound("buy") if n > 0
-		return n
+		play_sound("buy") if sold > 0
+		return sold
+
+	# total cost of buying n more units from the current count
+	bulk_cost: (n) ->
+		total = 0
+		for i in [0...n]
+			total += @buy_cost_for(@count + i)
+		total
+
+	# total refund for selling n units (25% of each sold unit's price)
+	bulk_sell_value: (n) ->
+		total = 0
+		for i in [0...n]
+			break if @count - i <= 0
+			total += Math.max(0, Math.floor(@buy_cost_for(@count - 1 - i) * 0.25))
+		total
+
+	# Purchase cost of the next unit (n = owned count). Fallbacks guarantee a
+	# sane finite cost even with broken custom values.
+	buy_cost_for: (n) ->
+		n = 0 unless isFinite(n)
+		n = Math.max(0, Math.floor(n))
+		base = if isFinite(@base_cost) && @base_cost > 0 then @base_cost else 15
+		cost = if @cost_fn then @cost_fn.call(this, n) else NaN
+		cost = base * Math.pow(1 + @cost_rate, n) unless isFinite(cost) && cost > 0
+		cost = base * Math.pow(1.15, n) unless isFinite(cost) && cost > 0
+		Math.max(1, Math.round(cost))
+
+	# Per-building/monkey purchase cost balance. All fields optional:
+	#   rate:    compound growth per owned unit as a fraction (default 0.15)
+	#   cost_f:  full custom formula, (n) -> cost, overriding the above
+	set_cost: (options = {}) ->
+		@cost_rate = options.rate if isFinite(options.rate) && options.rate >= 0
+		@cost_fn = options.cost_f if typeof options.cost_f is "function"
+		@cost = @buy_cost_for(@count)
+		@cost
 
 	levelup: () ->
-		if basedata.bloons < @lvup_cost
+		if basedata.balance() < @lvup_cost
 			return false
-		basedata.bloons -= @lvup_cost
+		basedata.spend(@lvup_cost)
 		@level += 1
 		@lvup_cost = @base_cost * 100 * Math.pow(1.35, @level - 1)
 		recalc()
@@ -154,7 +199,7 @@ monkeysub.set_theme("Monkey Sub", "A submarine monkey that fires homing barbed t
 monkeyace = new Generator("monkeyace")
 monkeyace.base_gps = 86500000
 monkeyace.set_base_cost(300000000000)
-monkeyace.set_theme("Monkey Ace", "A monkey pilot who throws out powerful dart volleys from above.", "Monkeys/MonkeyAce.svg", ["gcminer"])
+monkeyace.set_theme("Monkey Ace", "A monkey pilot who throws out powerful dart volleys from above.", "Monkeys/MonkeyAce", ["gcminer"])
 # repl. time: 32768 s
 
 spikefactory = new Generator("spikefactory")
@@ -173,9 +218,15 @@ supermonkey.base_gps = 800000000000
 supermonkey.set_base_cost(860e15)
 supermonkey.set_theme("Super Monkey", "A powerful monkey who throws darts hypersonically fast to destroy MOAB-class Bloons.", "Monkeys/SuperMonkey")
 
+# --- Per-tower purchase cost balance -------------------------------------
+# set_cost() is customisable for each building/monkey. Anything left unset
+# here falls back to the 15% compound formula (see Generator above).
+cursor.set_cost(rate: 0.10)                         # starter tower: gentle curve
+supermonkey.set_cost(rate: 0.20)                    # endgame tower: premium curve
+
 # create a list of the above generators
 ngens = [tackshooter, snipermonkey, bombshooter, boomerangthrower, gluegunner, icetower, ninjamonkey, monkeybuccaneer, monkeyapprentice, monkeysub, monkeyace, spikefactory, monkeyengineer, supermonkey]
 
 # create a dictionary by name so they're more easily searchable
 for gen in generators
-	gen.cost = gen.base_cost
+	gen.cost = gen.buy_cost_for(gen.count)

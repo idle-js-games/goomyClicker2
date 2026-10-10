@@ -15,7 +15,7 @@
                       0.10%
 
   */
-  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, PlusMarker, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, click1, cursor, def, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, icetower, import_save, init_cooldown_time, init_input, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, recalc, recalc_gpc, recalc_gps, regenerate_tooltips, sanitize_number_format, save_to_local_storage, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, youngsterpocalypse,
+  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_OFFLINE_MS, MAX_TICK_MS, PlusMarker, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
     indexOf = [].indexOf,
     hasProp = {}.hasOwnProperty;
 
@@ -85,6 +85,18 @@
       gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration);
       osc.connect(gain);
       gain.connect(ctx.destination);
+      // disconnect on end: otherwise stopped nodes stay attached to the
+      // destination and the audio graph grows over a long session
+      osc.onended = function() {
+        var e;
+        try {
+          osc.disconnect();
+          return gain.disconnect();
+        } catch (error1) {
+          e = error1;
+          return null;
+        }
+      };
       osc.start(ctx.currentTime);
       return osc.stop(ctx.currentTime + duration);
     },
@@ -161,7 +173,7 @@
       return this.music_started = true;
     },
     stop_music: function() {
-      var j, len1, node, ref;
+      var e, j, len1, node, ref;
       if (this.music) {
         this.music.pause();
       }
@@ -169,8 +181,14 @@
         ref = this.music_nodes;
         for (j = 0, len1 = ref.length; j < len1; j++) {
           node = ref[j];
-          if (node.stop) {
-            node.stop();
+          try {
+            if (node.stop) {
+              node.stop();
+            }
+            node.disconnect();
+          } catch (error1) {
+            e = error1;
+            null;
           }
         }
         this.music_nodes = null;
@@ -215,14 +233,64 @@
     expps: 0,
     gpc: 1,
     sliggoo_gpsmult: 1.0,
+    prestige_count: 0, // number of prestiges performed (max 15)
+    prestige_mult: 1.0, // global earnings/battle damage multiplier: 2 ^ prestige_count
+    prestige_threshold: function(n) {
+      if (n == null) {
+        n = this.prestige_count + 1;
+      }
+      return 1e9 * Math.pow(100, n - 1);
+    },
+    can_prestige: function() {
+      // thresholds count Bloons earned in the current run (total_bloons),
+      // which resets on every prestige
+      return this.prestige_count < 15 && this.total_bloons >= this.prestige_threshold();
+    },
+    prestige: function() {
+      if (!this.can_prestige()) {
+        return false;
+      }
+      this.prestige_count += 1;
+      this.prestige_mult = Math.pow(2, this.prestige_count);
+      // battle progress is a permanent track and survives prestige
+      this.reset(true);
+      play_sound("upgrade");
+      return true;
+    },
     raindance_mult: 1.0,
     frenzy_clickmult: 1.0,
+    frenzy_expmult: 1.0,
     clicks: 0, // number of times the Great Bloon was clicked
     total_clicks: 0,
+    // Compensation terms for compensated (Neumaier) summation: tiny gains on
+    // huge balances no longer vanish into the 2^53 quantisation step of a
+    // double, so balances stop drifting over long sessions. The true value of
+    // each accumulator is always value + its compensation term.
+    bloons_comp: 0,
+    total_bloons_comp: 0,
+    total_total_bloons_comp: 0,
+    balance: function() {
+      return this.bloons + this.bloons_comp;
+    },
     earn: function(n) {
-      this.bloons += n;
-      this.total_bloons += n;
-      return this.total_total_bloons += n;
+      this.add_precise("bloons", n);
+      this.add_precise("total_bloons", n);
+      return this.add_precise("total_total_bloons", n);
+    },
+    spend: function(n) {
+      // spending only reduces the balance; totals count earned bloons only
+      return this.add_precise("bloons", -n);
+    },
+    add_precise: function(key, n) {
+      var comp_key, t;
+      t = this[key] + n;
+      comp_key = key + "_comp";
+      if (Math.abs(this[key]) >= Math.abs(n)) {
+        this[comp_key] += (this[key] - t) + n;
+      } else {
+        this[comp_key] += (n - t) + this[key];
+      }
+      return this[key] = t;
     },
     click: function() {
       var gain;
@@ -233,12 +301,14 @@
       this.earn(gain);
       this.clicks += 1;
       this.total_clicks += 1;
-      bloon.gain_exp(bloon.level);
+      bloon.gain_exp(bloon.level * this.frenzy_expmult);
       return gain;
     },
     update: function(ms) {
       var exp_gain, gain;
-      gain = this.gps * ms / 1000;
+      // While a boss fight is active, BpS production is halted and instead
+      // channeled into damaging the boss (see battle.update).
+      gain = battle.active ? 0 : this.gps * ms / 1000;
       this.earn(gain);
       exp_gain = this.expps * ms / 1000;
       bloon.gain_exp(exp_gain);
@@ -247,30 +317,39 @@
         return this.total_play_time += ms;
       }
     },
-    reset: function() {
+    reset: function(keep_battle = false) {
       var generator, item, j, len1, name;
-      // calculate prestige bonuses
-      sliggoo.gain_exp(this.total_bloons / 1e12);
-      goodra.gain_exp(bloon.exp / 1e4);
+      // calculate prestige bonuses (grants are capped so the legacy
+      // level-up loops cannot hang on astronomic totals)
+      sliggoo.gain_exp(Math.min(this.total_bloons / 1e12, 1e12));
+      goodra.gain_exp(Math.min(bloon.exp / 1e4, 1e6));
       // Sliggoo gives a GPS multiplier boost.
       this.sliggoo_gpsmult = 1.0 + 0.1 * sliggoo.level;
       // Goodra raises the level cap.
       bloon.level_cap = 1000 + goodra.level;
       this.bloons = 0;
+      this.bloons_comp = 0;
       this.total_bloons = 0;
+      this.total_bloons_comp = 0;
       // @total_total_bloons is untouched.
       bloon.exp = 0;
       bloon.level = 1;
       bloon.next_lv_exp = 100;
       bloon.lv_total_exp = 0;
+      // prestige must not keep active shiny buffs around
+      this.raindance_mult = 1.0;
+      this.frenzy_clickmult = 1.0;
+      this.frenzy_expmult = 1.0;
+      shiny_bloon.cancel_effects();
       this.game_started = false;
       this.play_time = 0;
       this.clicks = 0;
       for (j = 0, len1 = generators.length; j < len1; j++) {
         generator = generators[j];
         generator.count = 0;
-        generator.cost = generator.base_cost;
+        generator.cost = generator.buy_cost_for(0);
         generator.level = 1;
+        generator.lvup_cost = generator.base_cost * 100;
         generator.upgrades = [];
       }
       for (name in items) {
@@ -278,7 +357,9 @@
         item.bought = false;
         item.locked = true;
       }
-      battle.reset_progress();
+      if (!keep_battle) {
+        battle.reset_progress();
+      }
       recalc();
       update_all_numbers();
       return regenerate_tooltips();
@@ -484,7 +565,7 @@
       if (this.eternal_stage > 0 && this.current_index >= this.bloons.length) {
         stage = this.eternal_stage;
         return {
-          name: `Eternal Bloon Stage ${stage}`,
+          name: `Eternal Bloon (Tier ${stage})`,
           image: [ETERNAL_BLOON_IMAGE, ETERNAL_BLOON_FALLBACK]
         };
       }
@@ -495,7 +576,7 @@
       if (this.current_index >= this.bloons.length) {
         stage = this.eternal_stage + 1;
         return {
-          name: `Eternal Bloon Stage ${stage}`,
+          name: `Eternal Bloon (Tier ${stage})`,
           hp: this.eternal_base_hp * Math.pow(this.eternal_hp_scale, this.eternal_stage),
           tap_reward: this.eternal_tap_reward + this.eternal_stage * 0.01,
           bps_reward: this.eternal_bps_reward + this.eternal_stage * 0.005,
@@ -553,7 +634,7 @@
       this.last_battle_image_signature = null;
       this.last_main_image_signature = null;
       play_sound("upgrade");
-      this.render_status(`Fight started: ${bloon.name}. Pop it before time runs out.`);
+      this.render_status(`Fight started: ${bloon.name}. Pop it before time runs out. Your BpS is channeled into damage while fighting.`);
       return this.render();
     },
     tap: function() {
@@ -605,7 +686,20 @@
     lose: function() {
       this.active = false;
       this.timer = 0;
-      this.render_status(`Time up! ${this.current_bloon().name} escaped.`);
+      this.render_status(`Time up! ${this.current_bloon().name} escaped. Build up your BPS and re-engage when ready.`);
+      return this.render_values();
+    },
+    retreat: function() {
+      var bloon;
+      if (!this.active) {
+        return;
+      }
+      bloon = this.current_bloon();
+      this.active = false;
+      this.timer = 0;
+      this.hp = this.max_hp;
+      play_sound("tap");
+      this.render_status(`Retreated! ${bloon.name} recovered to full HP. Build up your BPS and re-engage when ready.`);
       return this.render_values();
     },
     update: function(ms) {
@@ -646,7 +740,8 @@
         this.last_battle_image_signature = battle_signature;
       }
       previous = this.previous_bloon();
-      main_sources = previous ? previous.image : asset_url("great_bloon");
+      // no bloons slain yet: show a Red Bloon instead of the placeholder image
+      main_sources = previous ? previous.image : [bloon_asset("RedBloon"), bloon_image("%23e03535", "%23ff8a8a")];
       main_signature = this.image_signature(main_sources);
       if (main_signature !== this.last_main_image_signature) {
         set_image_with_fallback("#great_bloon", main_sources);
@@ -660,7 +755,8 @@
       $("#battle_hp").attr("max", this.max_hp || bloon.hp);
       $("#battle_hp").attr("value", Math.max(0, this.hp || bloon.hp));
       $("#battle_hp_value").html(reprnum(Math.ceil(Math.max(0, this.hp || bloon.hp))) + " / " + reprnum(this.max_hp || bloon.hp) + " HP");
-      return $("#battle_tap").prop("disabled", !this.active);
+      $("#battle_tap").prop("disabled", !this.active);
+      return $("#battle_retreat").prop("disabled", !this.active);
     },
     render: function() {
       var bloon, sources;
@@ -712,11 +808,19 @@
       return this.next_lv_exp = (this.level + 5) * (this.level + 5);
     },
     gain_exp: function(exp) {
-      var results;
+      var guard, results;
       this.exp += exp;
+      // bound the level-up loop per call: astronomic exp grants (prestige
+      // totals) must never freeze the browser in one tick
+      guard = 0;
       results = [];
       while (this.exp >= this.lv_total_exp + this.next_lv_exp) {
-        results.push(this.level_up());
+        this.level_up();
+        if ((guard += 1) > 1000000) {
+          break;
+        } else {
+          results.push(void 0);
+        }
       }
       return results;
     }
@@ -733,11 +837,17 @@
       return this.next_lv_exp = this.level * 30 + 1000;
     },
     gain_exp: function(exp) {
-      var results;
+      var guard, results;
       this.exp += exp;
+      guard = 0;
       results = [];
       while (this.exp >= this.lv_total_exp + this.next_lv_exp) {
-        results.push(this.level_up());
+        this.level_up();
+        if ((guard += 1) > 1000000) {
+          break;
+        } else {
+          results.push(void 0);
+        }
       }
       return results;
     }
@@ -748,6 +858,128 @@
   this.sliggoo = sliggoo;
 
   this.goodra = goodra;
+
+  // Update history shown in the Changelog tab.
+  // Entries are traced back from this repository's git history (oldest at the
+  // bottom); keep adding new entries at the top.
+  changelog_entries = [
+    {
+      date: "2026-10-10",
+      version: "v1.3",
+      title: "Prestige & cost formula corrections",
+      changes: ["Prestige thresholds now count Bloons earned in the current run instead of lifetime; the progress display shows the run total.",
+    "Fixed: prestige left a tower's level-up cost inflated (it was never reset when the tower's level reset).",
+    "The customisable cost formula with the 15% compound fallback now applies to building/monkey purchase costs (per-tower balance via set_cost, e.g. Cursor at 10% and Super Monkey at 20% per unit). Level-up costs are back to the classic formula (base cost x100, +35% per level)."]
+    },
+    {
+      date: "2026-10-10",
+      version: "v1.3",
+      title: "Shop UX polish & long-session hardening",
+      changes: ["Buy and Sell buttons in the hover menu now show their prices on the button itself (e.g. Buy 10 for 5.2K, Sell 10 for 1.2K); the separate cost lines are gone.",
+    "Fixed: upgrade tiles no longer duplicate per prestige; the shop pane (and its monkey images) is built exactly once and Monkey Ace's tile pointed at a deleted image file; menu tabs scroll horizontally when they overflow; currency uses compensated summation so huge balances no longer drift past the 2^53 precision ceiling; Shiny Bloon effects Click EXP Frenzy (x10 EXP/click for 20s) and Level Up are now actually implemented; prestige clears active shiny buffs; the HUD only rewrites when values actually change.",
+    "Changed: Eternal Bloon stages are now labelled Eternal Bloon (Tier X); retreating a boss fight resets its HP to full; failed and retreated fights now say \"Build up your BPS and re-engage when ready\"."]
+    },
+    {
+      date: "2026-10-10",
+      version: "v1.3",
+      title: "Prestige, bulk-buy costs & Sell 10/100",
+      changes: ["New Prestige tab: prestige at lifetime Bloons-earned thresholds (1 billion for the first, x100 per tier, 15 tiers: Bronze I-V, Silver I-V, Gold I-V). Each prestige grants a permanent x2 global earnings and battle damage boost and keeps battle progress.",
+    "The generator hover menu now shows the total cost of buying 10 or 100 monkeys/towers at once.",
+    "Sell 10 and Sell 100 are back in the hover menu; the bulk buy/sell loops were hardened (this was the bug that removed them).",
+    "Before any bloon is defeated in battle, the main Bloon now shows a Red Bloon instead of the placeholder image.",
+    "Guarded the legacy prestige level-up loops so astronomic totals can never freeze the game."]
+    },
+    {
+      date: "2026-10-10",
+      version: "v1.3",
+      title: "Upgrade cost rework, battle retreat & stability fixes",
+      changes: ["Reworked the upgrade (level-up) cost formula: it is now customisable for each building/monkey via Generator#set_levelup_cost, with a 15% compound fallback (base cost x100, +15% per level) wherever no custom balance is set.",
+    "First per-tower custom balance: Cursor level-ups are cheaper (x50 base cost), Super Monkey level-ups are premium (x200 base cost, +20% per level).",
+    "Boss battles: new Retreat button ends a fight early and halts the boss at its remaining HP, so you can build up production and re-engage later. While a fight is active your BpS is channeled into damaging the boss and Bloons production is halted.",
+    "Settings now has Save Now and Load Saved Progress buttons for manual save control.",
+    "Stability fixes from the long-session audit: mouse input on touch-capable (hybrid) devices, qtip widget leak on resize, upgrade tooltips rebuilt after tooltip regeneration, unlocked upgrades restored when loading a save, NaN-proof save importing, clamped game ticks with capped (24h) offline gains, and Web Audio node cleanup.",
+    "New Changelog tab (this page) tracing updates back to the first public release.",
+    "Completed a long-session degradation audit; see docs/BUG_AUDIT.md."]
+    },
+    {
+      date: "2026-05-06",
+      version: "v1.2",
+      title: "Bloon rebrand & battle fixes",
+      changes: ["Renamed all remaining Goomy references to Bloon and fixed bloon images (PRs #6-#8).",
+    "Boss fight timer is now driven by the main update loop and updates smoothly.",
+    "Normalised bloon/monkey assets, fixed battle save state and removed stale SVG duplicates (PR #9)."]
+    },
+    {
+      date: "2026-05-04",
+      version: "v1.2",
+      title: "Boss battle system & upgrade logic",
+      changes: ["New Battle tab: 30-second boss fights against an escalating line of Bloons, from Blue Bloon up to B.A.D and endless Eternal Bloon stages (PRs #4-#5).",
+    "Defeating bosses grants permanent Tap and Bloons-per-second reward multipliers.",
+    "Improved boss scaling and theme naming; polished reset controls and battle formatting."]
+    },
+    {
+      date: "2026-05-04",
+      version: "v1.2",
+      title: "UI rework & runtime fixes",
+      changes: ["Full UI rework: Shop / Battle / Settings tabs, stats sidebar and responsive layout (PR #1).",
+    "Fixed launch crash (missing IIFE closing brace) and other runtime JavaScript errors (PR #2).",
+    "Standards-mode doctype, removed legacy analytics script errors, trademark text fixes (PR #3)."]
+    },
+    {
+      date: "2022-06-02",
+      title: "Number formatting update",
+      changes: ["Updated number formatting and added new large-number names.",
+    "English language pack and page updates."]
+    },
+    {
+      date: "2022-05-14",
+      title: "GitHub Pages hosting",
+      changes: ["Set up and adjusted GitHub Pages hosting (CNAME)."]
+    },
+    {
+      date: "2021-12-28",
+      title: "Content refresh",
+      changes: ["Large content and asset upload.",
+    "Number formatting and English language pack updates."]
+    },
+    {
+      date: "2014-10-01",
+      version: "v0.354 (pre-alpha)",
+      title: "Initial public release",
+      changes: ["First public release, originally as Goomy Clicker 2.",
+    "Cursors and 15 monkey/tower types with tiered upgrades, Shiny Bloon effects, Sliggoo/Goodra prestige and save export/import."]
+    }
+  ];
+
+  render_changelog = function() {
+    var $changes, $entry, $list, change, entry, j, k, len1, len2, meta, ref, results;
+    $list = $("#changelog_list");
+    if (!$list.length) {
+      return;
+    }
+    $list.empty();
+    results = [];
+    for (j = 0, len1 = changelog_entries.length; j < len1; j++) {
+      entry = changelog_entries[j];
+      meta = entry.date + (entry.version ? "  \u00b7  " + entry.version : "");
+      $entry = $("<div class='changelog-entry'></div>");
+      $entry.append($("<div class='changelog-meta'></div>").text(meta));
+      $entry.append($("<h3 class='changelog-title'></h3>").text(entry.title));
+      $changes = $("<ul class='changelog-changes'></ul>");
+      ref = entry.changes;
+      for (k = 0, len2 = ref.length; k < len2; k++) {
+        change = ref[k];
+        $changes.append($("<li></li>").text(change));
+      }
+      $entry.append($changes);
+      results.push($list.append($entry));
+    }
+    return results;
+  };
+
+  this.changelog_entries = changelog_entries;
+
+  this.render_changelog = render_changelog;
 
   gens = {};
 
@@ -767,56 +999,119 @@
       this.level_mult = 1.0;
       this.base_cost = 15;
       this.cost = this.base_cost;
-      this.lvup_cost = this.base_cost * 100;
       this.count = 0;
-      this.cost_f = function(n) {
-        return Math.floor(this.base_cost * Math.pow(n + 10, Math.log(n + 10) / Math.log(10)) / 10);
-      };
+      // Purchase cost curve. Each building/monkey can set its own balance
+      // with set_cost(). When nothing is customised the fallback formula is
+      // a 15% compound per owned unit, i.e.
+      //   cost(n) = base_cost * (1 + cost_rate) ^ n
+      this.cost_rate = 0.15;
+      this.cost_fn = null;
+      this.lvup_cost = this.base_cost * 100;
       gens[name] = this;
       generators.push(this);
     }
 
     buy(n) {
-      var i, j, ref;
-      for (i = j = 1, ref = n; (1 <= ref ? j <= ref : j >= ref); i = 1 <= ref ? ++j : --j) {
-        if (basedata.bloons < this.cost) {
+      var bought, i, j, ref;
+      bought = 0;
+      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+        if (basedata.balance() < this.cost) {
           recalc();
-          return i - 1;
+          return bought;
         }
-        basedata.bloons -= this.cost;
+        basedata.spend(this.cost);
         this.count += 1;
-        this.cost = this.cost_f(this.count);
+        this.cost = this.buy_cost_for(this.count);
+        bought += 1;
       }
       recalc();
-      if (n > 0) {
+      if (bought > 0) {
         play_sound("buy");
       }
-      return n;
+      return bought;
     }
 
     sell(n) {
-      var i, j, ref;
-      for (i = j = 1, ref = n; (1 <= ref ? j <= ref : j >= ref); i = 1 <= ref ? ++j : --j) {
+      var i, j, ref, sold;
+      sold = 0;
+      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
         if (this.count <= 0) {
           recalc();
-          return i - 1;
+          return sold;
         }
         this.count -= 1;
-        this.cost = this.cost_f(this.count);
-        basedata.bloons += this.cost * 0.25;
+        this.cost = this.buy_cost_for(this.count);
+        basedata.earn(this.cost * 0.25);
+        sold += 1;
       }
       recalc();
-      if (n > 0) {
+      if (sold > 0) {
         play_sound("buy");
       }
-      return n;
+      return sold;
+    }
+
+    // total cost of buying n more units from the current count
+    bulk_cost(n) {
+      var i, j, ref, total;
+      total = 0;
+      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+        total += this.buy_cost_for(this.count + i);
+      }
+      return total;
+    }
+
+    // total refund for selling n units (25% of each sold unit's price)
+    bulk_sell_value(n) {
+      var i, j, ref, total;
+      total = 0;
+      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+        if (this.count - i <= 0) {
+          break;
+        }
+        total += Math.max(0, Math.floor(this.buy_cost_for(this.count - 1 - i) * 0.25));
+      }
+      return total;
+    }
+
+    // Purchase cost of the next unit (n = owned count). Fallbacks guarantee a
+    // sane finite cost even with broken custom values.
+    buy_cost_for(n) {
+      var base, cost;
+      if (!isFinite(n)) {
+        n = 0;
+      }
+      n = Math.max(0, Math.floor(n));
+      base = isFinite(this.base_cost) && this.base_cost > 0 ? this.base_cost : 15;
+      cost = this.cost_fn ? this.cost_fn.call(this, n) : 0/0;
+      if (!(isFinite(cost) && cost > 0)) {
+        cost = base * Math.pow(1 + this.cost_rate, n);
+      }
+      if (!(isFinite(cost) && cost > 0)) {
+        cost = base * Math.pow(1.15, n);
+      }
+      return Math.max(1, Math.round(cost));
+    }
+
+    // Per-building/monkey purchase cost balance. All fields optional:
+    //   rate:    compound growth per owned unit as a fraction (default 0.15)
+    //   cost_f:  full custom formula, (n) -> cost, overriding the above
+    set_cost(options = {}) {
+      if (isFinite(options.rate) && options.rate >= 0) {
+        this.cost_rate = options.rate;
+      }
+      if (typeof options.cost_f === "function") {
+        this.cost_fn = options.cost_f;
+      }
+      this.cost = this.buy_cost_for(this.count);
+      return this.cost;
     }
 
     levelup() {
-      if (basedata.bloons < this.lvup_cost) {
+      if (basedata.balance() < this.lvup_cost) {
         return false;
       }
-      basedata.bloons -= this.lvup_cost;
+      basedata.spend(this.lvup_cost);
       this.level += 1;
       this.lvup_cost = this.base_cost * 100 * Math.pow(1.35, this.level - 1);
       recalc();
@@ -964,7 +1259,7 @@
 
   monkeyace.set_base_cost(300000000000);
 
-  monkeyace.set_theme("Monkey Ace", "A monkey pilot who throws out powerful dart volleys from above.", "Monkeys/MonkeyAce.svg", ["gcminer"]);
+  monkeyace.set_theme("Monkey Ace", "A monkey pilot who throws out powerful dart volleys from above.", "Monkeys/MonkeyAce", ["gcminer"]);
 
   // repl. time: 32768 s
   spikefactory = new Generator("spikefactory");
@@ -992,14 +1287,45 @@
 
   supermonkey.set_theme("Super Monkey", "A powerful monkey who throws darts hypersonically fast to destroy MOAB-class Bloons.", "Monkeys/SuperMonkey");
 
+  // --- Per-tower purchase cost balance -------------------------------------
+  // set_cost() is customisable for each building/monkey. Anything left unset
+  // here falls back to the 15% compound formula (see Generator above).
+  cursor.set_cost({
+    rate: 0.10 // starter tower: gentle curve
+  });
+
+  supermonkey.set_cost({
+    rate: 0.20 // endgame tower: premium curve
+  });
+
+  
   // create a list of the above generators
   ngens = [tackshooter, snipermonkey, bombshooter, boomerangthrower, gluegunner, icetower, ninjamonkey, monkeybuccaneer, monkeyapprentice, monkeysub, monkeyace, spikefactory, monkeyengineer, supermonkey];
 
 // create a dictionary by name so they're more easily searchable
   for (j = 0, len1 = generators.length; j < len1; j++) {
     gen = generators[j];
-    gen.cost = gen.base_cost;
+    gen.cost = gen.buy_cost_for(gen.count);
   }
+
+  (function() {    // --- Hybrid-device input fix -----------------------------------------------
+    // touche.min.js rewrites jQuery's exact "click" bindings into "touchend" only
+    // on touch-capable devices, which makes mouse-driven controls dead on hybrid
+    // hardware (touchscreen laptops, tablets with a mouse). Route plain "click"
+    // bindings through a namespaced type instead: touche leaves namespaced types
+    // alone, and browsers fire a normal click for both mouse and touch input.
+    var original_on;
+    if (!(window.jQuery && jQuery.fn.on)) {
+      return;
+    }
+    original_on = jQuery.fn.on;
+    return jQuery.fn.on = function(types, selector, data, fn) {
+      if (types === "click") {
+        types = "click.gc2input";
+      }
+      return original_on.call(this, types, selector, data, fn);
+    };
+  })();
 
   generator_image_url = function(image) {
     return asset_url(image);
@@ -1011,9 +1337,13 @@
     $(document).one("mousedown touchstart keydown", function() {
       return audio.unlock();
     });
-// populate the generator pane
+// populate the generator pane (idempotent: tiles and their images are built
+// exactly once and never reconstructed)
     for (k = 0, len2 = ngens.length; k < len2; k++) {
       generator = ngens[k];
+      if ($(`#${generator.name}`).length) {
+        continue;
+      }
       $("#generators").append(`<div class='generator' id='${generator.name}'></div>`);
       $(`#${generator.name}`).append('<div class="generator-info"></div>');
       $(`#${generator.name}`).css("background-image", `url('${generator_image_url(generator.image)}')`);
@@ -1022,7 +1352,7 @@
     if ($(window).width() >= 1024) {
       for (l = 0, len3 = generators.length; l < len3; l++) {
         generator = generators[l];
-        $(`#${generator.name}`).click((function(name) {
+        $(`#${generator.name}`).off("click.gc2buy").on("click.gc2buy", (function(name) {
           return function() {
             return gens[name].buy(1);
           };
@@ -1072,6 +1402,20 @@
     $("#battle_tap").click(function() {
       return battle.tap();
     });
+    $("#battle_retreat").click(function() {
+      return battle.retreat();
+    });
+    $("#prestige_now").click(function() {
+      if (!basedata.can_prestige()) {
+        return false;
+      }
+      if (window.confirm && !window.confirm("Prestige now? Your Bloons, monkeys and upgrades will reset for a permanent x2 global earnings and battle damage boost.")) {
+        return false;
+      }
+      if (basedata.prestige()) {
+        return $("#prestige_status").html(`Prestige complete! Global earnings and battle damage are now x${reprnum(basedata.prestige_mult, "short")}.`);
+      }
+    });
     // settings tab
     $("#settings_audio").change(function() {
       settings.audio = $(this).is(":checked");
@@ -1090,6 +1434,18 @@
       update_all_numbers();
       battle.render();
       return save_to_local_storage();
+    });
+    $("#settings_save_now").click(function() {
+      var now;
+      save_to_local_storage();
+      now = new Date();
+      return $("#settings_save_status").html("Progress saved at " + now.toLocaleTimeString() + ".");
+    });
+    $("#settings_load_save").click(function() {
+      if (window.confirm && !window.confirm("Load the last saved progress? Unsaved progress since the last save will be lost.")) {
+        return false;
+      }
+      return window.location.reload();
     });
     $("#settings_reset_progress").click(function() {
       if (window.confirm && !window.confirm("Reset all progress? This cannot be undone.")) {
@@ -1124,10 +1480,10 @@
       this.locked = true;
       this.unlock_condition = function() {};
       this.buy = function() {
-        if (this.locked || basedata.bloons < this.cost) {
+        if (this.locked || basedata.balance() < this.cost) {
           return false;
         }
-        basedata.bloons -= this.cost;
+        basedata.spend(this.cost);
         this.bought = true;
         play_sound("upgrade");
         return recalc(); // everything you buy has recalculatory effects.
@@ -1138,6 +1494,32 @@
     }
 
   };
+
+  // Save fields are validated while importing: a corrupt or hand-edited save
+  // must never poison the running game with NaN (NaN comparisons always fail, so
+  // a single NaN field used to brick purchases and then get re-saved forever).
+  parse_num = function(value, fallback = 0) {
+    var n;
+    n = parseFloat(value);
+    if (isFinite(n)) {
+      return n;
+    } else {
+      return fallback;
+    }
+  };
+
+  parse_int = function(value, fallback = 0) {
+    var n;
+    n = parseInt(value, 10);
+    if (isFinite(n)) {
+      return n;
+    } else {
+      return fallback;
+    }
+  };
+
+  // offline progress granted when loading a save is capped at one day
+  MAX_OFFLINE_MS = 24 * 60 * 60 * 1000;
 
   number_format_load_codes = {
     "0": "full",
@@ -1151,7 +1533,7 @@
   };
 
   load_save_from_local_storage = function() {
-    var error, generator, k, len2, save_data;
+    var error, generator, item, k, l, len2, len3, offline_ms, save_data, save_ms;
     if (window.localStorage.hasOwnProperty("gc2.savefile") && window.localStorage["gc2.savefile"] !== "") {
       save_data = null;
       try {
@@ -1165,20 +1547,42 @@
       if (!save_data) {
         return;
       }
-      last_update_time.setTime(save_data["save_time"].getTime());
+      save_ms = save_data["save_time"].getTime();
+      if (!isFinite(save_ms)) {
+        save_ms = new Date().getTime();
+      }
       if (save_data["play_time"] !== -1) {
         basedata.game_started = true;
         basedata.play_time = save_data["play_time"];
       }
       basedata.total_play_time = save_data["total_play_time"];
       basedata.bloons = save_data["bloons"];
+      basedata.bloons_comp = 0;
+      basedata.total_bloons_comp = 0;
+      basedata.total_total_bloons_comp = 0;
       basedata.total_bloons = save_data["total_bloons"];
       basedata.total_total_bloons = save_data["total_total_bloons"];
       basedata.clicks = save_data["clicks"];
       basedata.total_clicks = save_data["total_clicks"];
+      // reset progression state first so loading is idempotent: gain_exp is
+      // additive and would otherwise double exp when re-loading a save
+      bloon.exp = 0;
+      bloon.level = 1;
+      bloon.next_lv_exp = 100;
+      bloon.lv_total_exp = 0;
+      sliggoo.exp = 0;
+      sliggoo.level = 0;
+      sliggoo.next_lv_exp = 25;
+      sliggoo.lv_total_exp = 0;
+      goodra.exp = 0;
+      goodra.level = 0;
+      goodra.next_lv_exp = 1000;
+      goodra.lv_total_exp = 0;
       bloon.gain_exp(save_data["bloon_exp"]);
       sliggoo.gain_exp(save_data["sliggoo_exp"]);
       goodra.gain_exp(save_data["goodra_exp"]);
+      basedata.prestige_count = Math.max(0, Math.min(15, parse_int(save_data["prestige_count"], 0)));
+      basedata.prestige_mult = Math.pow(2, basedata.prestige_count);
       basedata.sliggoo_gpsmult = 1.0 + 0.1 * sliggoo.level;
       bloon.level_cap = 1000 + goodra.level;
       for (k = 0, len2 = generators.length; k < len2; k++) {
@@ -1190,10 +1594,26 @@
           generator.count = 0;
           generator.level = 1;
         }
-        generator.cost = generator.cost_f(generator.count);
+        generator.cost = generator.buy_cost_for(generator.count);
         generator.lvup_cost = generator.base_cost * 100 * Math.pow(1.35, generator.level - 1);
       }
       recalc();
+// re-create the upgrade UI for upgrades restored as unlocked: it is only
+// generated at unlock time, so without this they vanish from the shop
+      for (l = 0, len3 = itemlist.length; l < len3; l++) {
+        item = itemlist[l];
+        if (!item.locked) {
+          ensure_item_dom(item);
+        }
+      }
+      // grant offline production explicitly and capped: the game loop itself
+      // clamps every tick to MAX_TICK_MS, so this is applied exactly once
+      offline_ms = Math.min(Math.max(0, new Date().getTime() - save_ms), MAX_OFFLINE_MS);
+      if (offline_ms > 0 && isFinite(basedata.gps) && isFinite(basedata.expps)) {
+        basedata.earn(basedata.gps * offline_ms / 1000);
+        bloon.gain_exp(basedata.expps * offline_ms / 1000);
+      }
+      last_update_time.setTime(new Date().getTime());
       $("#settings_audio").prop("checked", settings.audio);
       $("#settings_music").prop("checked", settings.music);
       $("#settings_number_format").val(settings.number_format);
@@ -1205,7 +1625,9 @@
   import_save = function(str) {
     var version;
     version = str.split("||", 1)[0];
-    if (version === "0.12") {
+    if (version === "0.13") {
+      return _import_save_0_10(str);
+    } else if (version === "0.12") {
       return _import_save_0_10(str);
     } else if (version === "0.11") {
       return _import_save_0_10(str);
@@ -1224,24 +1646,24 @@
 
   // save file version 0.10
   _import_save_0_10 = function(str) {
-    var d02_basedata, d03_bloonstats, d04_generators, d05_upgrades, d05_upgrades_bought, d05_upgrades_unlocked, d07_settings, d08_battle, data, datum, gen_data, generator_names, i, id, k, l, legacy_generator_names, ref, save, save_time, saved_defeated, saved_eternal_stage;
+    var d02_basedata, d03_bloonstats, d04_generators, d05_upgrades, d05_upgrades_bought, d05_upgrades_unlocked, d07_settings, d08_battle, d09_prestige, data, datum, gen_data, generator_names, i, id, k, l, legacy_generator_names, ref, save, save_time, saved_defeated, saved_eternal_stage;
     save = {};
     data = str.split("||");
     save_time = new Date();
-    save_time.setTime(parseInt(data[1]));
+    save_time.setTime(parse_int(data[1], new Date().getTime()));
     save["save_time"] = save_time;
     d02_basedata = data[2].split("|");
-    save["play_time"] = parseFloat(d02_basedata[0]);
-    save["total_play_time"] = parseFloat(d02_basedata[1]);
-    save["bloons"] = parseFloat(d02_basedata[2]);
-    save["total_bloons"] = parseFloat(d02_basedata[3]);
-    save["total_total_bloons"] = parseFloat(d02_basedata[4]);
-    save["clicks"] = parseFloat(d02_basedata[5]);
-    save["total_clicks"] = parseFloat(d02_basedata[6]);
+    save["play_time"] = parse_num(d02_basedata[0], -1);
+    save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0));
+    save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0));
+    save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0));
+    save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0));
+    save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0));
+    save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0));
     d03_bloonstats = data[3].split("|");
-    save["bloon_exp"] = parseInt(d03_bloonstats[0]);
-    save["sliggoo_exp"] = parseInt(d03_bloonstats[1]);
-    save["goodra_exp"] = parseInt(d03_bloonstats[2]);
+    save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0));
+    save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0));
+    save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0));
     generator_names = ["cursor", "monkey", "tackshooter", "snipermonkey", "bombshooter", "boomerangthrower", "gluegunner", "icetower", "ninjamonkey", "monkeybuccaneer", "monkeyapprentice", "monkeysub", "monkeyace", "spikefactory", "monkeyengineer", "supermonkey"];
     legacy_generator_names = ["cursor", "monkey", "daycare", "reserve", "farm", "fountain", "cave", "trench", "arceus", "rngabuser", "cloninglab", "church", "gcminer", "photoncollider", "monkeyengineer", "supermonkey"];
     gen_data = {};
@@ -1249,8 +1671,8 @@
     for (i = k = 0, ref = Math.min(generator_names.length, d04_generators.length) - 1; (0 <= ref ? k <= ref : k >= ref); i = 0 <= ref ? ++k : --k) {
       datum = d04_generators[i].split(",");
       gen_data[generator_names[i]] = {
-        count: parseInt(datum[0]),
-        level: parseInt(datum[1])
+        count: Math.max(0, parse_int(datum[0], 0)),
+        level: Math.max(1, parse_int(datum[1], 1))
       };
       if (legacy_generator_names[i] !== generator_names[i]) {
         gen_data[legacy_generator_names[i]] = gen_data[generator_names[i]];
@@ -1287,6 +1709,11 @@
       battle.active = false;
       battle.recalculate_rewards();
     }
+    save["prestige_count"] = 0;
+    if (data[8]) {
+      d09_prestige = data[8].split("|");
+      save["prestige_count"] = Math.max(0, parse_int(d09_prestige[0], 0));
+    }
     return save;
   };
 
@@ -1296,20 +1723,20 @@
     save = {};
     data = str.split("||", 5);
     save_time = new Date();
-    save_time.setTime(parseInt(data[1]));
+    save_time.setTime(parse_int(data[1], new Date().getTime()));
     save["save_time"] = save_time;
     d02_basedata = data[2].split("|");
-    save["play_time"] = parseFloat(d02_basedata[0]);
-    save["total_play_time"] = parseFloat(d02_basedata[1]);
-    save["bloons"] = parseFloat(d02_basedata[2]);
-    save["total_bloons"] = parseFloat(d02_basedata[3]);
-    save["total_total_bloons"] = parseFloat(d02_basedata[4]);
-    save["clicks"] = parseFloat(d02_basedata[5]);
-    save["total_clicks"] = parseFloat(d02_basedata[6]);
+    save["play_time"] = parse_num(d02_basedata[0], -1);
+    save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0));
+    save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0));
+    save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0));
+    save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0));
+    save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0));
+    save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0));
     d03_bloonstats = data[3].split("|");
-    save["bloon_exp"] = parseInt(d03_bloonstats[0]);
-    save["sliggoo_exp"] = parseInt(d03_bloonstats[1]);
-    save["goodra_exp"] = parseInt(d03_bloonstats[2]);
+    save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0));
+    save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0));
+    save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0));
     generator_names = ["cursor", "monkey", "tackshooter", "snipermonkey", "bombshooter", "boomerangthrower", "gluegunner", "icetower", "ninjamonkey", "monkeybuccaneer", "monkeyapprentice", "monkeysub", "monkeyace", "spikefactory", "monkeyengineer", "supermonkey"];
     legacy_generator_names = ["cursor", "monkey", "daycare", "reserve", "farm", "fountain", "cave", "trench", "arceus", "rngabuser", "cloninglab", "church", "gcminer", "photoncollider", "monkeyengineer", "supermonkey"];
     gen_data = {};
@@ -1317,8 +1744,8 @@
     for (i = k = 0, ref = Math.min(generator_names.length, d04_generators.length) - 1; (0 <= ref ? k <= ref : k >= ref); i = 0 <= ref ? ++k : --k) {
       datum = d04_generators[i].split(",");
       gen_data[generator_names[i]] = {
-        count: parseInt(datum[0]),
-        level: parseInt(datum[1])
+        count: Math.max(0, parse_int(datum[0], 0)),
+        level: Math.max(1, parse_int(datum[1], 1))
       };
       if (legacy_generator_names[i] !== generator_names[i]) {
         gen_data[legacy_generator_names[i]] = gen_data[generator_names[i]];
@@ -1328,23 +1755,150 @@
     return save;
   };
 
-  update_numbers = function() {
-    var bloon_str;
-    bloon_str = reprnum(Math.floor(basedata.bloons), "long");
-    $(".bloons").html(bloon_str);
-    $("#stats_playtime").html(reprtime(basedata.play_time));
-    $("#stats_bloons").html(reprnum(Math.floor(basedata.bloons), "long"));
-    $("#stats_total_bloons").html(reprnum(Math.floor(basedata.total_bloons), "long"));
-    $("#stats_exp").html(reprnum(Math.floor(bloon.exp)));
-    $("#stats_exp_to_next_level").html(reprnum(bloon.next_lv_exp + bloon.lv_total_exp - Math.floor(bloon.exp)));
-    if (shiny_bloon.time_left > 0) {
-      if (shiny_bloon.effect === "raindance") {
-        $("#rain_dance_time_left").html(reprsecs(shiny_bloon.time_left));
-      } else if (shiny_bloon.effect === "clickmult") {
-        $("#click_frenzy_time_left").html(reprsecs(shiny_bloon.time_left));
+  destroy_qtip = function($el) {
+    var e;
+    try {
+      if ($el.data("qtip")) {
+        return $el.qtip("destroy", true);
+      }
+    } catch (error1) {
+      e = error1;
+      return null;
+    }
+  };
+
+  // Upgrade (item) UI pieces. ensure_item_dom is idempotent: an item's tile,
+  // tooltip and widget are created exactly once (never duplicated per prestige)
+  // and the tile's visibility simply tracks its bought state. The helpers below
+  // let regenerate_tooltips rebuild the tooltip nodes it wipes from #tooltips.
+  ensure_item_dom = function(item) {
+    var $tile, created, want_hidden;
+    created = false;
+    $tile = $(`#${item.name}`);
+    if (!$tile.length) {
+      $("#items").append(`<div class='item' id='${item.name}'> ${item.display_name || item.name} </div>`);
+      $tile = $(`#${item.name}`);
+      $tile.off("click.gc2item").on("click.gc2item", (function(name) {
+        return function() {
+          if (items[name].buy()) {
+            return $(`#${name}`).hide().data("itemHidden", true);
+          }
+        };
+      })(item.name));
+      created = true;
+    }
+    if (!$(`#${item.name}_tooltip`).length) {
+      create_item_tooltip_content(item);
+      init_item_qtip(item);
+      created = true;
+    }
+    want_hidden = !!item.bought;
+    if ($tile.data("itemHidden") !== want_hidden) {
+      $tile.data("itemHidden", want_hidden);
+      if (want_hidden) {
+        $tile.hide();
+      } else {
+        $tile.show();
       }
     }
-    return $("#level_progress").attr("value", bloon.exp - bloon.lv_total_exp);
+    if (created) {
+      return clear_hud_cache();
+    }
+  };
+
+  create_item_tooltip_content = function(item) {
+    $(`#${item.name}_tooltip`).remove();
+    $("#tooltips").append(`<div class='item-tooltip' id='${item.name}_tooltip'></div>`);
+    $(`#${item.name}_tooltip`).append(`<p id='${item.name}_description'>` + (langs[lang][`${item.name}_description`] || item.description) + "</p>" + `<br /> Cost: <span class='tooltip-gps' id='${item.name}_tooltip_cost'></span> Bloons <hr />` + `<span id='${item.name}_flavourtext'>` + (langs[lang][`${item.name}_caption`] || item.caption) + "</span>");
+    return $(`#${item.name}_tooltip_cost`).html(reprnum(Math.floor(item.cost), "long"));
+  };
+
+  init_item_qtip = function(item) {
+    var $tile;
+    $tile = $(`#${item.name}`);
+    if (!$tile.length) {
+      return;
+    }
+    destroy_qtip($tile);
+    return $tile.qtip({
+      content: {
+        title: item.display_name || langs[lang][`${item.name}_name`] || item.name,
+        text: $($(`#${item.name}_tooltip`)[0])
+      },
+      style: {
+        classes: "qtip-dark",
+        width: 300
+      },
+      position: {
+        my: $(window).width() > 1024 ? "right center" : "bottom left",
+        at: $(window).width() > 1024 ? "left center" : "top left",
+        viewport: $(window)
+      },
+      show: {
+        delay: 0
+      },
+      hide: {
+        delay: 100
+      }
+    });
+  };
+
+  // --- render-on-change HUD cache -----------------------------------------
+  // The HUD is refreshed from a 50 Hz tick loop; rewriting identical HTML every
+  // 20 ms burns CPU for nothing, so each value is written only when it changes.
+  hud_cache = {};
+
+  clear_hud_cache = function() {
+    return hud_cache = {};
+  };
+
+  set_hud = function(key, selector, html) {
+    if (hud_cache[key] === html) {
+      return;
+    }
+    hud_cache[key] = html;
+    return $(selector).html(html);
+  };
+
+  set_hud_attr = function(key, selector, attr, value) {
+    if (hud_cache[key] === value) {
+      return;
+    }
+    hud_cache[key] = value;
+    return $(selector).attr(attr, value);
+  };
+
+  set_hud_visible = function(key, selector, visible) {
+    if (hud_cache[key] === visible) {
+      return;
+    }
+    hud_cache[key] = visible;
+    if (visible) {
+      return $(selector).show();
+    } else {
+      return $(selector).hide();
+    }
+  };
+
+  update_numbers = function() {
+    var bloon_str;
+    bloon_str = reprnum(Math.floor(basedata.balance()), "long");
+    set_hud("bloons", ".bloons", bloon_str);
+    set_hud("stats_playtime", "#stats_playtime", reprtime(basedata.play_time));
+    set_hud("stats_bloons", "#stats_bloons", bloon_str);
+    set_hud("stats_total_bloons", "#stats_total_bloons", reprnum(Math.floor(basedata.total_bloons), "long"));
+    set_hud("stats_exp", "#stats_exp", reprnum(Math.floor(bloon.exp)));
+    set_hud("stats_exp_to_next_level", "#stats_exp_to_next_level", reprnum(bloon.next_lv_exp + bloon.lv_total_exp - Math.floor(bloon.exp)));
+    if (shiny_bloon.time_left > 0) {
+      if (shiny_bloon.effect === "raindance") {
+        set_hud("rain_dance_time_left", "#rain_dance_time_left", reprsecs(shiny_bloon.time_left));
+      } else if (shiny_bloon.effect === "clickmult") {
+        set_hud("click_frenzy_time_left", "#click_frenzy_time_left", reprsecs(shiny_bloon.time_left));
+      } else if (shiny_bloon.effect === "clickexpfrenzy") {
+        set_hud("click_exp_frenzy_time_left", "#click_exp_frenzy_time_left", reprsecs(shiny_bloon.time_left));
+      }
+    }
+    return set_hud_attr("level_progress_value", "#level_progress", "value", bloon.exp - bloon.lv_total_exp);
   };
 
   update_all_numbers = function() {
@@ -1352,89 +1906,125 @@
     // updates numbers other than just Bloon count and related stats.
     update_numbers();
     gps_str = reprnum(Math.round(basedata.gps * 10) / 10, "medium");
-    $(".gps").html(gps_str);
-    $("#stats_gps").html(gps_str);
+    set_hud("gps", ".gps", gps_str);
+    set_hud("stats_gps", "#stats_gps", gps_str);
     for (k = 0, len2 = generators.length; k < len2; k++) {
       generator = generators[k];
-      $("#" + generator.name + "_cost").html(reprnum(Math.floor(generator.cost), "short"));
+      set_hud(`${generator.name}_cost`, `#${generator.name}_cost`, reprnum(Math.floor(generator.cost), "short"));
       if (indexOf.call(ngens, generator) >= 0) {
         if (generator.count > 0) {
-          $("#" + generator.name + "_count").html("x" + reprnum(generator.count, "short"));
+          set_hud(`${generator.name}_count`, `#${generator.name}_count`, "x" + reprnum(generator.count, "short"));
         } else {
-          $("#" + generator.name + "_count").html("");
+          set_hud(`${generator.name}_count`, `#${generator.name}_count`, "");
         }
       } else {
-        $("#" + generator.name + "_count").html(reprnum(generator.count, "short"));
+        set_hud(`${generator.name}_count`, `#${generator.name}_count`, reprnum(generator.count, "short"));
       }
-      $(`#${generator.name}_gps`).html(reprnum(Math.round(generator.gps * 100) / 100, "medium"));
-      $(`#${generator.name}_owned`).html(reprnum(generator.count, "short"));
-      $(`#${generator.name}_tooltip_cost`).html(reprnum(Math.floor(generator.cost), "long"));
-      $(`#${generator.name}_level`).html(reprnum(generator.level, "short"));
-      $(`#${generator.name}_levelup_cost`).html(reprnum(generator.lvup_cost, "short"));
+      set_hud(`${generator.name}_gps`, `#${generator.name}_gps`, reprnum(Math.round(generator.gps * 100) / 100, "medium"));
+      set_hud(`${generator.name}_owned`, `#${generator.name}_owned`, reprnum(generator.count, "short"));
+      set_hud(`${generator.name}_tooltip_cost`, `#${generator.name}_tooltip_cost`, reprnum(Math.floor(generator.cost), "long"));
+      set_hud(`${generator.name}_buy1_cost`, `#${generator.name}_buy1_cost`, reprnum(Math.floor(generator.cost), "short"));
+      set_hud(`${generator.name}_buy10_cost`, `#${generator.name}_buy10_cost`, reprnum(generator.bulk_cost(10), "short"));
+      set_hud(`${generator.name}_buy100_cost`, `#${generator.name}_buy100_cost`, reprnum(generator.bulk_cost(100), "short"));
+      set_hud(`${generator.name}_sell1_cost`, `#${generator.name}_sell1_cost`, reprnum(generator.bulk_sell_value(1), "short"));
+      set_hud(`${generator.name}_sell10_cost`, `#${generator.name}_sell10_cost`, reprnum(generator.bulk_sell_value(10), "short"));
+      set_hud(`${generator.name}_sell100_cost`, `#${generator.name}_sell100_cost`, reprnum(generator.bulk_sell_value(100), "short"));
+      set_hud(`${generator.name}_level`, `#${generator.name}_level`, reprnum(generator.level, "short"));
+      set_hud(`${generator.name}_levelup_cost`, `#${generator.name}_levelup_cost`, reprnum(generator.lvup_cost, "short"));
     }
     // special abbreviation code for cursors and monkeys
     if (("" + gens["cursor"].count).length >= langs[lang].cursor_abbrev_length + 2) {
-      $("#cursor_counter").html("");
+      set_hud("cursor_counter", "#cursor_counter", "");
     } else if (("" + gens["cursor"].count).length >= langs[lang].cursor_abbrev_length) {
-      $("#cursor_counter").html(langs[lang].cursor_counter_short);
+      set_hud("cursor_counter", "#cursor_counter", langs[lang].cursor_counter_short);
     } else {
-      $("#cursor_counter").html(langs[lang].cursor_counter);
+      set_hud("cursor_counter", "#cursor_counter", langs[lang].cursor_counter);
     }
     if (("" + gens["monkey"].count).length >= langs[lang].monkey_abbrev_length + 2) {
-      $("#monkey_counter").html("");
+      set_hud("monkey_counter", "#monkey_counter", "");
     } else if (("" + gens["monkey"].count).length >= langs[lang].monkey_abbrev_length) {
-      $("#monkey_counter").html(langs[lang].monkey_counter_short);
+      set_hud("monkey_counter", "#monkey_counter", langs[lang].monkey_counter_short);
     } else {
-      $("#monkey_counter").html(langs[lang].monkey_counter);
+      set_hud("monkey_counter", "#monkey_counter", langs[lang].monkey_counter);
     }
     for (l = 0, len3 = itemlist.length; l < len3; l++) {
       item = itemlist[l];
       if (item.locked && item.unlock_condition()) {
         item.locked = false;
-        // create the item in HTML.
-        $("#items").append(`<div class='item' id='${item.name}'> ${item.display_name || item.name} </div>`);
-        // create the tooltip
-        $("#tooltips").append(`<div class='item-tooltip' id='${item.name}_tooltip'></div>`);
-        $(`#${item.name}_tooltip`).append(`<p id='${item.name}_description'>` + (langs[lang][`${item.name}_description`] || item.description) + "</p>" + `<br /> Cost: <span class='tooltip-gps' id='${item.name}_tooltip_cost'></span> Bloons <hr />` + `<span id='${item.name}_flavourtext'>` + (langs[lang][`${item.name}_caption`] || item.caption) + "</span>");
-        $(`#${item.name}_tooltip_cost`).html(reprnum(Math.floor(item.cost), "long"));
-        $(`#${item.name}`).qtip({
-          content: {
-            title: item.display_name || langs[lang][`${item.name}_name`] || item.name,
-            text: $($(`#${item.name}_tooltip`)[0])
-          },
-          style: {
-            classes: "qtip-dark",
-            width: 300
-          },
-          position: {
-            my: $(window).width() > 1024 ? "right center" : "bottom left",
-            at: $(window).width() > 1024 ? "left center" : "top left",
-            viewport: $(window)
-          },
-          show: {
-            delay: 0
-          },
-          hide: {
-            delay: 100
-          }
-        });
-        $(`#${item.name}`).click((function(name) {
-          return function() {
-            if (items[name].buy()) {
-              return $(`#${name}`).hide();
-            }
-          };
-        })(item.name));
+      }
+      if (!item.locked) {
+        ensure_item_dom(item);
       }
     }
-    if (bloon.level === bloon.level_cap) {
-      $("#stats_next_level_row").hide();
-    } else {
-      $("#stats_next_level_row").show();
+    set_hud_visible("stats_next_level_row", "#stats_next_level_row", bloon.level !== bloon.level_cap);
+    set_hud("level", ".level", reprnum(bloon.level, "short"));
+    set_hud_attr("level_progress_max", "#level_progress", "max", bloon.next_lv_exp);
+    set_hud("stats_next_level", "#stats_next_level", reprnum(bloon.level + 1, "short"));
+    return update_prestige_display();
+  };
+
+  // --- Prestige tab display ----------------------------------------------
+  prestige_rank_names = (function() {
+    var i, k, medal, names, roman;
+    names = [];
+    roman = ["I", "II", "III", "IV", "V"];
+    for (i = k = 0; k < 15; i = ++k) {
+      medal = i < 5 ? "Bronze" : i < 10 ? "Silver" : "Gold";
+      names.push(`${medal} ${roman[i % 5]}`);
     }
-    $(".level").html(reprnum(bloon.level, "short"));
-    $("#level_progress").attr("max", bloon.next_lv_exp);
-    return $("#stats_next_level").html(reprnum(bloon.level + 1, "short"));
+    return names;
+  })();
+
+  render_prestige_tab = function() {
+    var $row, $tbody, idx, k, len2, name, tier;
+    $tbody = $("#prestige_tiers");
+    if (!$tbody.length) {
+      return;
+    }
+    clear_hud_cache();
+    $tbody.empty();
+    for (idx = k = 0, len2 = prestige_rank_names.length; k < len2; idx = ++k) {
+      name = prestige_rank_names[idx];
+      tier = idx + 1;
+      $row = $(`<tr id='prestige_tier_${tier}'></tr>`);
+      $row.append($("<td></td>").text(`Tier ${tier}`));
+      $row.append($("<td></td>").text(name));
+      $row.append($("<td class='prestige-tier-threshold'></td>"));
+      $row.append($("<td class='prestige-tier-status'></td>"));
+      $tbody.append($row);
+    }
+    return update_prestige_display();
+  };
+
+  update_prestige_display = function() {
+    var $row, count, k, status, threshold, tier;
+    if (!$("#prestige_rank_name").length) {
+      return;
+    }
+    count = basedata.prestige_count;
+    set_hud("prestige_rank_name", "#prestige_rank_name", count > 0 ? prestige_rank_names[count - 1] : "None");
+    set_hud("prestige_mult_value", "#prestige_mult_value", "x" + reprnum(basedata.prestige_mult, "short"));
+    if (count >= 15) {
+      set_hud("prestige_target", "#prestige_target", "Maximum prestige reached.");
+      set_hud_attr("prestige_bar_max", "#prestige_progress_bar", "max", 1);
+      set_hud_attr("prestige_bar_value", "#prestige_progress_bar", "value", 1);
+    } else {
+      threshold = basedata.prestige_threshold();
+      set_hud("prestige_target", "#prestige_target", `Next rank: <b>${prestige_rank_names[count]}</b> at ${reprnum(threshold, "short")} Bloons earned`);
+      set_hud_attr("prestige_bar_max", "#prestige_progress_bar", "max", threshold);
+      set_hud_attr("prestige_bar_value", "#prestige_progress_bar", "value", Math.min(basedata.total_bloons, threshold));
+    }
+    set_hud("prestige_earned", "#prestige_earned", reprnum(Math.floor(basedata.total_bloons), "short"));
+    for (tier = k = 1; k <= 15; tier = ++k) {
+      $row = $(`#prestige_tier_${tier}`);
+      if (!$row.length) {
+        continue;
+      }
+      set_hud(`prestige_tier_${tier}_threshold`, `#prestige_tier_${tier} .prestige-tier-threshold`, reprnum(basedata.prestige_threshold(tier), "short"));
+      status = count >= tier ? "Achieved" : count + 1 === tier ? "Next" : "Locked";
+      set_hud(`prestige_tier_${tier}_status`, `#prestige_tier_${tier} .prestige-tier-status`, status);
+    }
+    return $("#prestige_now").prop("disabled", !basedata.can_prestige());
   };
 
   update_language = function() {
@@ -1443,27 +2033,37 @@
   };
 
   regenerate_tooltips = function() {
-    var generator, k, l, len2, len3;
+    var generator, item, k, l, len2, len3, len4, len5, len6, m, o, p;
     for (k = 0, len2 = generators.length; k < len2; k++) {
       generator = generators[k];
-      $(`#${generator.name}`).unbind();
+      $(`#${generator.name}`).off("click.gc2buy");
       if ($(window).width() >= 1024) {
-        $(`#${generator.name}`).click((function(name) {
+        $(`#${generator.name}`).on("click.gc2buy", (function(name) {
           return function() {
             return gens[name].buy(1);
           };
         })(generator.name));
       }
     }
-    // if on a mobile platform, clicking to show tooltips shouldn't autobuy.
-    $("#tooltips").empty();
-    $(".qtip").empty();
     for (l = 0, len3 = generators.length; l < len3; l++) {
       generator = generators[l];
+      // if on a mobile platform, clicking to show tooltips shouldn't autobuy.
+
+      // Destroy existing qtip widgets before rebuilding them, or every call leaks
+      // another set of tooltip elements (this runs on resize/language changes).
+      destroy_qtip($(`#${generator.name}`));
+    }
+    for (m = 0, len4 = itemlist.length; m < len4; m++) {
+      item = itemlist[m];
+      destroy_qtip($(`#${item.name}`));
+    }
+    $(".qtip").remove();
+    $("#tooltips").empty();
+    for (o = 0, len5 = generators.length; o < len5; o++) {
+      generator = generators[o];
       // tooltips are annoying because of this. >_>
-      $(`#${generator.name}_description`).html(langs[lang][`${generator.name}_description`] || generator.description);
       $("#tooltips").append(`<div class='generator-tooltip' id='${generator.name}_tooltip'></div>`);
-      $(`#${generator.name}_tooltip`).append(`<span id='${generator.name}_description'>` + (langs[lang][`${generator.name}_description`] || generator.description) + "</span>" + `<hr /> <span class='lang_tooltip_gps_pre'>Each one produces </span> <span class='tooltip-gps' id='${generator.name}_gps'></span> <span class='lang_tooltip_gps_post'> Bloons per second</span> <br /> <span class='lang_tooltip_owned_pre'>You own </span> <span class='tooltip-gps' id='${generator.name}_owned'></span> <span class='lang_tooltip_owned_post'></span> <br /> <span class='lang_tooltip_cost_pre'>To buy one costs </span> <span class='tooltip-gps' id='${generator.name}_tooltip_cost'></span> <span class='lang_tooltip_cost_post'> Bloons</span> <br /> <button class='tooltip-buy-button lang_tooltip_buy1' id='${generator.name}_buy1'>Buy 1</button> <button class='tooltip-buy-button lang_tooltip_buy10' id='${generator.name}_buy10'>Buy 10</button> <button class='tooltip-buy-button lang_tooltip_buy100' id='${generator.name}_buy100'>Buy 100</button> <button class='tooltip-buy-button lang_tooltip_sell1' id='${generator.name}_sell1'>Sell 1</button> <hr /> <span class='lang_tooltip_level_pre'>Level </span> <span class='tooltip-gps' id='${generator.name}_level'></span> <span class='lang_tooltip_level_post'></span> <button id='${generator.name}_levelup' class='tooltip-buy-button'>Level up for <span id='${generator.name}_levelup_cost'></span></button>`);
+      $(`#${generator.name}_tooltip`).append(`<span id='${generator.name}_description'>` + (langs[lang][`${generator.name}_description`] || generator.description) + "</span>" + `<hr /> <span class='lang_tooltip_gps_pre'>Each one produces </span> <span class='tooltip-gps' id='${generator.name}_gps'></span> <span class='lang_tooltip_gps_post'> Bloons per second</span> <br /> <span class='lang_tooltip_owned_pre'>You own </span> <span class='tooltip-gps' id='${generator.name}_owned'></span> <span class='lang_tooltip_owned_post'></span> <br /> <span class='lang_tooltip_cost_pre'>To buy one costs </span> <span class='tooltip-gps' id='${generator.name}_tooltip_cost'></span> <span class='lang_tooltip_cost_post'> Bloons</span> <br /> <button class='tooltip-buy-button' id='${generator.name}_buy1'><span class='lang_tooltip_buy1'>Buy 1</span> for <span class='tooltip-gps' id='${generator.name}_buy1_cost'></span></button> <button class='tooltip-buy-button' id='${generator.name}_buy10'><span class='lang_tooltip_buy10'>Buy 10</span> for <span class='tooltip-gps' id='${generator.name}_buy10_cost'></span></button> <button class='tooltip-buy-button' id='${generator.name}_buy100'><span class='lang_tooltip_buy100'>Buy 100</span> for <span class='tooltip-gps' id='${generator.name}_buy100_cost'></span></button> <button class='tooltip-buy-button' id='${generator.name}_sell1'><span class='lang_tooltip_sell1'>Sell 1</span> for <span class='tooltip-gps' id='${generator.name}_sell1_cost'></span></button> <button class='tooltip-buy-button' id='${generator.name}_sell10'><span class='lang_tooltip_sell10'>Sell 10</span> for <span class='tooltip-gps' id='${generator.name}_sell10_cost'></span></button> <button class='tooltip-buy-button' id='${generator.name}_sell100'><span class='lang_tooltip_sell100'>Sell 100</span> for <span class='tooltip-gps' id='${generator.name}_sell100_cost'></span></button> <hr /> <span class='lang_tooltip_level_pre'>Level </span> <span class='tooltip-gps' id='${generator.name}_level'></span> <span class='lang_tooltip_level_post'></span> <button id='${generator.name}_levelup' class='tooltip-buy-button'>Level up for <span id='${generator.name}_levelup_cost'></span></button>`);
       $(`#${generator.name}`).qtip({
         content: {
           title: langs[lang][`${generator.name}_name`] || generator.display_name || generator.name,
@@ -1506,12 +2106,30 @@
           return gens[name].sell(1);
         };
       })(generator.name));
+      $(`#${generator.name}_sell10`).click((function(name) {
+        return function() {
+          return gens[name].sell(10);
+        };
+      })(generator.name));
+      $(`#${generator.name}_sell100`).click((function(name) {
+        return function() {
+          return gens[name].sell(100);
+        };
+      })(generator.name));
       $(`#${generator.name}_levelup`).click((function(name) {
         return function() {
           return gens[name].levelup();
         };
       })(generator.name));
     }
+// rebuild the upgrade tooltips that $("#tooltips").empty() just removed
+    for (p = 0, len6 = itemlist.length; p < len6; p++) {
+      item = itemlist[p];
+      if (!item.locked) {
+        ensure_item_dom(item);
+      }
+    }
+    clear_hud_cache();
     $(".lang_tooltip_gps_pre").html(langs[lang]["tooltip_gps_pre"]);
     $(".lang_tooltip_gps_post").html(langs[lang]["tooltip_gps_post"]);
     $(".lang_tooltip_owned_pre").html(langs[lang]["tooltip_owned_pre"]);
@@ -1521,15 +2139,32 @@
     $(".lang_tooltip_buy1").html(langs[lang]["tooltip_buy1"]);
     $(".lang_tooltip_buy10").html(langs[lang]["tooltip_buy10"]);
     $(".lang_tooltip_buy100").html(langs[lang]["tooltip_buy100"]);
-    return $(".lang_tooltip_sell1").html(langs[lang]["tooltip_sell1"]);
+    $(".lang_tooltip_sell1").html(langs[lang]["tooltip_sell1"]);
+    $(".lang_tooltip_sell10").html(langs[lang]["tooltip_sell10"] || "Sell 10");
+    return $(".lang_tooltip_sell100").html(langs[lang]["tooltip_sell100"] || "Sell 100");
   };
 
+  // debounced: regenerate_tooltips is expensive and used to run on every raw
+  // resize event, re-creating all qtip widgets continuously while dragging.
+  resize_timer = null;
+
   $(window).resize(function() {
-    regenerate_tooltips();
-    return update_all_numbers();
+    if (resize_timer) {
+      window.clearTimeout(resize_timer);
+    }
+    return resize_timer = window.setTimeout((function() {
+      regenerate_tooltips();
+      return update_all_numbers();
+    }), 250);
   });
 
   // main game loop
+
+  // a single tick never applies more than 5 minutes of game time: without this,
+  // sleeps, suspended tabs or backwards clock jumps pass unbounded (or negative)
+  // ms into the simulation
+  MAX_TICK_MS = 5 * 60 * 1000;
+
   last_update_time = new Date();
 
   updateF = function(ms) {
@@ -1545,6 +2180,10 @@
     new_update_time = new Date();
     ms = new_update_time.getTime() - last_update_time.getTime();
     last_update_time.setTime(new_update_time.getTime());
+    if (!isFinite(ms)) {
+      ms = 0;
+    }
+    ms = Math.max(0, Math.min(ms, MAX_TICK_MS));
     return updateF(ms);
   };
 
@@ -1651,6 +2290,7 @@
       new_gps += gen.count * gen.gps;
     }
     new_gps *= basedata.sliggoo_gpsmult;
+    new_gps *= basedata.prestige_mult;
     new_gps *= basedata.raindance_mult;
     new_gps *= battle.bps_mult;
     return basedata.gps = new_gps;
@@ -1679,6 +2319,7 @@
       }
     }
     new_gpc *= Math.pow(1.1, gens["cursor"].level - 1);
+    new_gpc *= basedata.prestige_mult;
     new_gpc *= basedata.raindance_mult;
     new_gpc *= basedata.frenzy_clickmult;
     new_gpc *= battle.tap_mult;
@@ -1753,11 +2394,11 @@
   };
 
   export_save = function() {
-    var d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle;
-    d01_version = "0.12";
+    var d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle, d09_prestige;
+    d01_version = "0.13";
     d02_savetime = "" + new Date().getTime();
     // GPS, EXPPS, and GPC are recalculable, and so are not included here.
-    d03_basedata = [basedata.game_started ? repr_sstr(basedata.play_time) : "-1", repr_sstr(basedata.total_play_time), repr_sstr(Math.floor(basedata.bloons)), repr_sstr(Math.floor(basedata.total_bloons)), repr_sstr(Math.floor(basedata.total_total_bloons)), repr_sstr(basedata.clicks), repr_sstr(basedata.total_clicks)].join("|");
+    d03_basedata = [basedata.game_started ? repr_sstr(basedata.play_time) : "-1", repr_sstr(basedata.total_play_time), repr_sstr(Math.floor(basedata.balance())), repr_sstr(Math.floor(basedata.total_bloons)), repr_sstr(Math.floor(basedata.total_total_bloons)), repr_sstr(basedata.clicks), repr_sstr(basedata.total_clicks)].join("|");
     d04_bloonstats = [repr_sstr(Math.floor(bloon.exp)), repr_sstr(Math.floor(sliggoo.exp)), repr_sstr(Math.floor(goodra.exp))].join("|");
     d05_generators = (function() {
       var gen_stat_string, gen_stats, generator, k, len2;
@@ -1789,7 +2430,8 @@
     })();
     d07_settings = [(settings.audio ? "1" : "0"), (settings.music ? "1" : "0"), number_format_save_codes[settings.number_format] || number_format_save_codes.full].join("|");
     d08_battle = [battle.defeated, battle.current_index, battle.eternal_stage].join("|");
-    return [d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle].join("||");
+    d09_prestige = [basedata.prestige_count].join("|");
+    return [d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle, d09_prestige].join("||");
   };
 
   init_cooldown_time = 200000;
@@ -1821,6 +2463,11 @@
           if (this.effect === "clickmult") {
             basedata.frenzy_clickmult = 1.0;
             $("#shiny_bloon_click_frenzy").hide();
+            recalc();
+          }
+          if (this.effect === "clickexpfrenzy") {
+            basedata.frenzy_expmult = 1.0;
+            $("#shiny_bloon_click_exp_frenzy").hide();
             return recalc();
           }
         }
@@ -1846,9 +2493,9 @@
           } else if (spinner < 0.985) {
             this.effect = "clickmult";
           } else if (spinner < 0.9945) {
-            this.effect = "bloons";
+            this.effect = "clickexpfrenzy";
           } else if (spinner < 0.999) {
-            this.effect = "bloons";
+            this.effect = "levelup";
           } else {
             this.effect = "bloons";
           }
@@ -1891,14 +2538,37 @@
         recalc();
         $("#shiny_bloon_click_frenzy").show();
         return shiny_plus_marker = new PlusMarker("Click Frenzy! Clicking x704 for 7.04 seconds!", x, y, 3000);
+      } else if (this.effect === "clickexpfrenzy") {
+        this.time_left = 20000;
+        basedata.frenzy_expmult = 10.0;
+        recalc();
+        $("#shiny_bloon_click_exp_frenzy").show();
+        return shiny_plus_marker = new PlusMarker("EXP Frenzy! Clicking gives x10 EXP for 20 seconds!", x, y, 3000);
+      } else if (this.effect === "levelup") {
+        if (bloon.level < bloon.level_cap) {
+          bloon.level_up();
+        }
+        return shiny_plus_marker = new PlusMarker(`Level Up! The Bloon is now level ${bloon.level}!`, x, y, 3000);
       }
+    },
+    // wipe any active timed effect (used by prestige/reset)
+    cancel_effects: function() {
+      this.time_left = 0;
+      this.effect = "none";
+      $("#shiny_bloon_rain_dance").hide();
+      $("#shiny_bloon_click_frenzy").hide();
+      return $("#shiny_bloon_click_exp_frenzy").hide();
     }
   };
+
+  this.shiny_bloon = shiny_bloon;
 
   this.click_on_shiny_bloon = shiny_bloon.click;
 
   start_if_loaded = function() {
     init_input();
+    render_changelog();
+    render_prestige_tab();
     change_language(lang);
     load_save_from_local_storage();
     battle.render();

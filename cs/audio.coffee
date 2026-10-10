@@ -20,6 +20,14 @@ audio =
 		gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + duration)
 		osc.connect(gain)
 		gain.connect(ctx.destination)
+		# disconnect on end: otherwise stopped nodes stay attached to the
+		# destination and the audio graph grows over a long session
+		osc.onended = ->
+			try
+				osc.disconnect()
+				gain.disconnect()
+			catch e
+				null
 		osc.start(ctx.currentTime)
 		osc.stop(ctx.currentTime + duration)
 	play: (name) ->
@@ -73,8 +81,12 @@ audio =
 		if @music
 			@music.pause()
 		if @music_nodes
-			for node in @music_nodes when node.stop
-				node.stop()
+			for node in @music_nodes
+				try
+					node.stop() if node.stop
+					node.disconnect()
+				catch e
+					null
 			@music_nodes = null
 		@music_started = false
 	refresh_music: ->

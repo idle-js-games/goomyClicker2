@@ -1,3 +1,16 @@
+# --- Hybrid-device input fix -----------------------------------------------
+# touche.min.js rewrites jQuery's exact "click" bindings into "touchend" only
+# on touch-capable devices, which makes mouse-driven controls dead on hybrid
+# hardware (touchscreen laptops, tablets with a mouse). Route plain "click"
+# bindings through a namespaced type instead: touche leaves namespaced types
+# alone, and browsers fire a normal click for both mouse and touch input.
+do ->
+	return unless window.jQuery && jQuery.fn.on
+	original_on = jQuery.fn.on
+	jQuery.fn.on = (types, selector, data, fn) ->
+		types = "click.gc2input" if types == "click"
+		original_on.call(this, types, selector, data, fn)
+
 generator_image_url = (image) -> asset_url(image)
 
 init_input = ->
@@ -5,8 +18,10 @@ init_input = ->
 	$(".nano").nanoScroller()
 	$(document).one("mousedown touchstart keydown", -> audio.unlock())
 
-	# populate the generator pane
+	# populate the generator pane (idempotent: tiles and their images are built
+	# exactly once and never reconstructed)
 	for generator in ngens
+		continue if $("##{generator.name}").length
 		$("#generators").append("<div class='generator' id='#{generator.name}'></div>")
 		$("##{generator.name}").append('<div class="generator-info"></div>')
 		$("##{generator.name}").css("background-image", "url('#{generator_image_url(generator.image)}')")
@@ -15,7 +30,7 @@ init_input = ->
 
 	if $(window).width() >= 1024
 		for generator in generators
-			$("##{generator.name}").click(((name) -> (() -> gens[name].buy(1)))(generator.name))
+			$("##{generator.name}").off("click.gc2buy").on("click.gc2buy", ((name) -> (() -> gens[name].buy(1)))(generator.name))
 	# if on a mobile platform, clicking on tooltips shouldn't autobuy.
 
 	$("#bloon_container").mousedown (e) ->
@@ -50,6 +65,15 @@ init_input = ->
 
 	$("#battle_start").click -> battle.start()
 	$("#battle_tap").click -> battle.tap()
+	$("#battle_retreat").click -> battle.retreat()
+
+	$("#prestige_now").click ->
+		unless basedata.can_prestige()
+			return false
+		if window.confirm && !window.confirm("Prestige now? Your Bloons, monkeys and upgrades will reset for a permanent x2 global earnings and battle damage boost.")
+			return false
+		if basedata.prestige()
+			$("#prestige_status").html("Prestige complete! Global earnings and battle damage are now x#{reprnum(basedata.prestige_mult, "short")}.")
 
 	# settings tab
 	$("#settings_audio").change ->
@@ -65,6 +89,16 @@ init_input = ->
 		update_all_numbers()
 		battle.render()
 		save_to_local_storage()
+	$("#settings_save_now").click ->
+		save_to_local_storage()
+		now = new Date()
+		$("#settings_save_status").html("Progress saved at " + now.toLocaleTimeString() + ".")
+
+	$("#settings_load_save").click ->
+		if window.confirm && !window.confirm("Load the last saved progress? Unsaved progress since the last save will be lost.")
+			return false
+		window.location.reload()
+
 	$("#settings_reset_progress").click ->
 		if window.confirm && !window.confirm("Reset all progress? This cannot be undone.")
 			return false

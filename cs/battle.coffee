@@ -62,7 +62,7 @@ battle =
 		if @eternal_stage > 0 && @current_index >= @bloons.length
 			stage = @eternal_stage
 			return {
-				name: "Eternal Bloon Stage #{stage}"
+				name: "Eternal Bloon (Tier #{stage})"
 				image: [ETERNAL_BLOON_IMAGE, ETERNAL_BLOON_FALLBACK]
 			}
 		@bloons[Math.max(0, Math.min(@current_index - 1, @bloons.length - 1))]
@@ -70,7 +70,7 @@ battle =
 		if @current_index >= @bloons.length
 			stage = @eternal_stage + 1
 			return {
-				name: "Eternal Bloon Stage #{stage}"
+				name: "Eternal Bloon (Tier #{stage})"
 				hp: @eternal_base_hp * Math.pow(@eternal_hp_scale, @eternal_stage)
 				tap_reward: @eternal_tap_reward + @eternal_stage * 0.01
 				bps_reward: @eternal_bps_reward + @eternal_stage * 0.005
@@ -115,7 +115,7 @@ battle =
 		@last_battle_image_signature = null
 		@last_main_image_signature = null
 		play_sound("upgrade")
-		@render_status("Fight started: #{bloon.name}. Pop it before time runs out.")
+		@render_status("Fight started: #{bloon.name}. Pop it before time runs out. Your BpS is channeled into damage while fighting.")
 		@render()
 	tap: ->
 		return unless @active
@@ -154,7 +154,16 @@ battle =
 	lose: ->
 		@active = false
 		@timer = 0
-		@render_status("Time up! #{@current_bloon().name} escaped.")
+		@render_status("Time up! #{@current_bloon().name} escaped. Build up your BPS and re-engage when ready.")
+		@render_values()
+	retreat: ->
+		return unless @active
+		bloon = @current_bloon()
+		@active = false
+		@timer = 0
+		@hp = @max_hp
+		play_sound("tap")
+		@render_status("Retreated! #{bloon.name} recovered to full HP. Build up your BPS and re-engage when ready.")
 		@render_values()
 	update: (ms) ->
 		return unless @active
@@ -174,7 +183,8 @@ battle =
 			set_image_with_fallback("#battle_bloon_img", sources)
 			@last_battle_image_signature = battle_signature
 		previous = @previous_bloon()
-		main_sources = if previous then previous.image else asset_url("great_bloon")
+		# no bloons slain yet: show a Red Bloon instead of the placeholder image
+		main_sources = if previous then previous.image else [bloon_asset("RedBloon"), bloon_image("%23e03535", "%23ff8a8a")]
 		main_signature = @image_signature(main_sources)
 		if main_signature != @last_main_image_signature
 			set_image_with_fallback("#great_bloon", main_sources)
@@ -186,6 +196,7 @@ battle =
 		$("#battle_hp").attr("value", Math.max(0, @hp || bloon.hp))
 		$("#battle_hp_value").html(reprnum(Math.ceil(Math.max(0, @hp || bloon.hp))) + " / " + reprnum(@max_hp || bloon.hp) + " HP")
 		$("#battle_tap").prop("disabled", !@active)
+		$("#battle_retreat").prop("disabled", !@active)
 	render: ->
 		bloon = @current_bloon()
 		sources = bloon.image

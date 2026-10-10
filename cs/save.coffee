@@ -68,14 +68,14 @@ sstr_to_bitfield = (sstr) ->
 
 export_save = ->
 
-	d01_version = "0.12"
+	d01_version = "0.13"
 
 	d02_savetime = "" + new Date().getTime()
 
 	d03_basedata = [
 		if basedata.game_started then repr_sstr(basedata.play_time) else "-1",
 		repr_sstr(basedata.total_play_time),
-		repr_sstr(Math.floor(basedata.bloons)),
+		repr_sstr(Math.floor(basedata.balance())),
 		repr_sstr(Math.floor(basedata.total_bloons)),
 		repr_sstr(Math.floor(basedata.total_total_bloons)),
 		repr_sstr(basedata.clicks),
@@ -115,5 +115,6 @@ export_save = ->
 
 	d07_settings = [(if settings.audio then "1" else "0"), (if settings.music then "1" else "0"), number_format_save_codes[settings.number_format] || number_format_save_codes.full].join("|")
 	d08_battle = [battle.defeated, battle.current_index, battle.eternal_stage].join("|")
+	d09_prestige = [basedata.prestige_count].join("|")
 
-	return [d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle].join("||")
+	return [d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle, d09_prestige].join("||")

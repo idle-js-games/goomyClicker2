@@ -33,8 +33,12 @@ sliggoo =
 
 	gain_exp: (exp) ->
 		@exp += exp
+		# bound the level-up loop per call: astronomic exp grants (prestige
+		# totals) must never freeze the browser in one tick
+		guard = 0
 		while @exp >= @lv_total_exp + @next_lv_exp
 			do @level_up
+			break if (guard += 1) > 1000000
 
 
 goodra =
@@ -50,8 +54,10 @@ goodra =
 
 	gain_exp: (exp) ->
 		@exp += exp
+		guard = 0
 		while @exp >= @lv_total_exp + @next_lv_exp
 			do @level_up
+			break if (guard += 1) > 1000000
 
 @bloon = bloon
 @sliggoo = sliggoo

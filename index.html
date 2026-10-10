@@ -76,7 +76,9 @@
 			<div id="menu_tabs">
 				<button class="menu-tab active" data-tab="shop_tab">Shop</button>
 				<button class="menu-tab" data-tab="battle_tab">Battle</button>
+				<button class="menu-tab" data-tab="prestige_tab">Prestige</button>
 				<button class="menu-tab" data-tab="settings_tab">Settings</button>
+				<button class="menu-tab" data-tab="changelog_tab">Changelog</button>
 			</div>
 			<div id="shop_tab" class="menu-panel active">
 
@@ -107,7 +109,7 @@
 			<div id="battle_tab" class="menu-panel">
 				<div id="battle_panel">
 					<h2>Bloon Battle</h2>
-					<p>30-second boss fights. Tap + passive BPS only.</p>
+					<p>30-second boss fights. Tap + BpS only. During a fight your BpS is channeled into damaging the boss (Bloons production is halted). Retreat to halt the fight, build up production and re-engage later.</p>
 					<div id="battle_target_row">Target: <b id="battle_target">Blue Bloon</b></div>
 					<img id="battle_bloon_img" src="img/great_bloon.png" alt="Current boss bloon" />
 					<div id="battle_status">Ready for battle.</div>
@@ -116,8 +118,26 @@
 					<div id="battle_hp_value">1,000 / 1,000 HP</div>
 					<button id="battle_start">Start Boss Fight</button>
 					<button id="battle_tap">Tap Attack</button>
+					<button id="battle_retreat" disabled="disabled">Retreat</button>
 					<h3>Defeated Bloons</h3>
 					<div id="battle_trophies"></div>
+				</div>
+			</div>
+
+			<div id="prestige_tab" class="menu-panel">
+				<div id="prestige_panel">
+					<h2>Prestige</h2>
+					<p>Reach the Bloons-earned threshold to prestige. Each prestige resets your Bloons, monkeys and upgrades for a permanent <b>x2 global earnings and battle damage</b> boost. Battle progress is kept. 15 tiers: Bronze I-V, Silver I-V, Gold I-V.</p>
+					<div>Current rank: <b id="prestige_rank_name">None</b></div>
+					<div>Global boost: <b id="prestige_mult_value">x1</b></div>
+					<div>Bloons earned (this run): <b id="prestige_earned">0</b></div>
+					<div id="prestige_target"></div>
+					<progress id="prestige_progress_bar" max="1000" value="0"></progress>
+					<br />
+					<button id="prestige_now" disabled="disabled">Prestige</button>
+					<div id="prestige_status"></div>
+					<h3>Tiers</h3>
+					<table id="prestige_tiers"></table>
 				</div>
 			</div>
 
@@ -133,7 +153,19 @@
 						<option value="scientific">Scientific</option>
 						<option value="engineering">Engineering</option>
 					</select>
+					<hr />
+					<button id="settings_save_now">Save Now</button>
+					<button id="settings_load_save">Load Saved Progress</button>
+					<div id="settings_save_status"></div>
 					<button id="settings_reset_progress" class="danger-button">Reset Progress</button>
+				</div>
+			</div>
+
+			<div id="changelog_tab" class="menu-panel">
+				<div id="changelog_panel">
+					<h2>Changelog</h2>
+					<p>Update history, traced back to the first release.</p>
+					<div id="changelog_list"></div>
 				</div>
 			</div>
 
@@ -151,6 +183,10 @@
 				<tr id="shiny_bloon_click_frenzy" style="display: none;">
 					<td><span class="lang_click_frenzy_time_left">Click Frenzy time left</span></td>
 					<td style="text-align: right;"><b id="click_frenzy_time_left">00<small>.00</small></b></td>
+				</tr>
+				<tr id="shiny_bloon_click_exp_frenzy" style="display: none;">
+					<td><span>Click EXP Frenzy time left</span></td>
+					<td style="text-align: right;"><b id="click_exp_frenzy_time_left">00<small>.00</small></b></td>
 				</tr>
 
 				<tr style="height: 8px;"></tr>

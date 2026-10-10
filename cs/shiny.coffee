@@ -45,6 +45,10 @@ shiny_bloon =
 					basedata.frenzy_clickmult = 1.0
 					$("#shiny_bloon_click_frenzy").hide()
 					recalc()
+				if @effect == "clickexpfrenzy"
+					basedata.frenzy_expmult = 1.0
+					$("#shiny_bloon_click_exp_frenzy").hide()
+					recalc()
 		else if @appeared
 			if @opacity < 1
 				@opacity = Math.min(1, @opacity + ms / 2000)
@@ -66,9 +70,9 @@ shiny_bloon =
 				else if spinner < 0.985
 					@effect = "clickmult"
 				else if spinner < 0.9945
-					@effect = "bloons"
+					@effect = "clickexpfrenzy"
 				else if spinner < 0.999
-					@effect = "bloons"
+					@effect = "levelup"
 				else
 					@effect = "bloons"
 
@@ -103,6 +107,25 @@ shiny_bloon =
 			recalc()
 			$("#shiny_bloon_click_frenzy").show()
 			shiny_plus_marker = new PlusMarker("Click Frenzy! Clicking x704 for 7.04 seconds!", x, y, 3000)
+		else if @effect == "clickexpfrenzy"
+			@time_left = 20000
+			basedata.frenzy_expmult = 10.0
+			recalc()
+			$("#shiny_bloon_click_exp_frenzy").show()
+			shiny_plus_marker = new PlusMarker("EXP Frenzy! Clicking gives x10 EXP for 20 seconds!", x, y, 3000)
+		else if @effect == "levelup"
+			if bloon.level < bloon.level_cap
+				do bloon.level_up
+			shiny_plus_marker = new PlusMarker("Level Up! The Bloon is now level #{bloon.level}!", x, y, 3000)
+
+	# wipe any active timed effect (used by prestige/reset)
+	cancel_effects: ->
+		@time_left = 0
+		@effect = "none"
+		$("#shiny_bloon_rain_dance").hide()
+		$("#shiny_bloon_click_frenzy").hide()
+		$("#shiny_bloon_click_exp_frenzy").hide()
 
 
+@shiny_bloon = shiny_bloon
 @click_on_shiny_bloon = shiny_bloon.click

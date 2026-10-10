@@ -1,3 +1,17 @@
+# Save fields are validated while importing: a corrupt or hand-edited save
+# must never poison the running game with NaN (NaN comparisons always fail, so
+# a single NaN field used to brick purchases and then get re-saved forever).
+parse_num = (value, fallback = 0) ->
+	n = parseFloat(value)
+	if isFinite(n) then n else fallback
+
+parse_int = (value, fallback = 0) ->
+	n = parseInt(value, 10)
+	if isFinite(n) then n else fallback
+
+# offline progress granted when loading a save is capped at one day
+MAX_OFFLINE_MS = 24 * 60 * 60 * 1000
+
 number_format_load_codes = {
 	"0": "full"
 	"1": "small"
@@ -21,7 +35,8 @@ load_save_from_local_storage = () ->
 			return
 		return unless save_data
 
-		last_update_time.setTime(save_data["save_time"].getTime())
+		save_ms = save_data["save_time"].getTime()
+		save_ms = new Date().getTime() unless isFinite(save_ms)
 
 		if save_data["play_time"] != -1
 			basedata.game_started = true
@@ -29,14 +44,35 @@ load_save_from_local_storage = () ->
 
 		basedata.total_play_time = save_data["total_play_time"]
 		basedata.bloons = save_data["bloons"]
+		basedata.bloons_comp = 0
+		basedata.total_bloons_comp = 0
+		basedata.total_total_bloons_comp = 0
 		basedata.total_bloons = save_data["total_bloons"]
 		basedata.total_total_bloons = save_data["total_total_bloons"]
 		basedata.clicks = save_data["clicks"]
 		basedata.total_clicks = save_data["total_clicks"]
 
+		# reset progression state first so loading is idempotent: gain_exp is
+		# additive and would otherwise double exp when re-loading a save
+		bloon.exp = 0
+		bloon.level = 1
+		bloon.next_lv_exp = 100
+		bloon.lv_total_exp = 0
+		sliggoo.exp = 0
+		sliggoo.level = 0
+		sliggoo.next_lv_exp = 25
+		sliggoo.lv_total_exp = 0
+		goodra.exp = 0
+		goodra.level = 0
+		goodra.next_lv_exp = 1000
+		goodra.lv_total_exp = 0
+
 		bloon.gain_exp(save_data["bloon_exp"])
 		sliggoo.gain_exp(save_data["sliggoo_exp"])
 		goodra.gain_exp(save_data["goodra_exp"])
+
+		basedata.prestige_count = Math.max(0, Math.min(15, parse_int(save_data["prestige_count"], 0)))
+		basedata.prestige_mult = Math.pow(2, basedata.prestige_count)
 
 		basedata.sliggoo_gpsmult = 1.0 + 0.1 * (sliggoo.level)
 		bloon.level_cap = 1000 + (goodra.level)
@@ -48,10 +84,25 @@ load_save_from_local_storage = () ->
 			else
 				generator.count = 0
 				generator.level = 1
-			generator.cost = generator.cost_f(generator.count)
+			generator.cost = generator.buy_cost_for(generator.count)
 			generator.lvup_cost = generator.base_cost * 100 * Math.pow(1.35, generator.level - 1)
 
 		recalc()
+
+		# re-create the upgrade UI for upgrades restored as unlocked: it is only
+		# generated at unlock time, so without this they vanish from the shop
+		for item in itemlist when !item.locked
+			ensure_item_dom(item)
+
+		# grant offline production explicitly and capped: the game loop itself
+		# clamps every tick to MAX_TICK_MS, so this is applied exactly once
+		offline_ms = Math.min(Math.max(0, new Date().getTime() - save_ms), MAX_OFFLINE_MS)
+		if offline_ms > 0 && isFinite(basedata.gps) && isFinite(basedata.expps)
+			basedata.earn(basedata.gps * offline_ms / 1000)
+			bloon.gain_exp(basedata.expps * offline_ms / 1000)
+
+		last_update_time.setTime(new Date().getTime())
+
 		$("#settings_audio").prop("checked", settings.audio)
 		$("#settings_music").prop("checked", settings.music)
 		$("#settings_number_format").val(settings.number_format)
@@ -63,7 +114,9 @@ import_save = (str) ->
 
 	version = str.split("||", 1)[0]  # first instance of a number
 
-	if version == "0.12"
+	if version == "0.13"
+		return _import_save_0_10(str)
+	else if version == "0.12"
 		return _import_save_0_10(str)
 	else if version == "0.11"
 		return _import_save_0_10(str)
@@ -93,22 +146,22 @@ _import_save_0_10 = (str) ->
 	data = str.split("||")
 
 	save_time = new Date()
-	save_time.setTime(parseInt(data[1]))
+	save_time.setTime(parse_int(data[1], new Date().getTime()))
 	save["save_time"] = save_time
 
 	d02_basedata = data[2].split("|")
-	save["play_time"] = parseFloat(d02_basedata[0])
-	save["total_play_time"] = parseFloat(d02_basedata[1])
-	save["bloons"] = parseFloat(d02_basedata[2])
-	save["total_bloons"] = parseFloat(d02_basedata[3])
-	save["total_total_bloons"] = parseFloat(d02_basedata[4])
-	save["clicks"] = parseFloat(d02_basedata[5])
-	save["total_clicks"] = parseFloat(d02_basedata[6])
+	save["play_time"] = parse_num(d02_basedata[0], -1)
+	save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0))
+	save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0))
+	save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0))
+	save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0))
+	save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0))
+	save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0))
 
 	d03_bloonstats = data[3].split("|")
-	save["bloon_exp"] = parseInt(d03_bloonstats[0])
-	save["sliggoo_exp"] = parseInt(d03_bloonstats[1])
-	save["goodra_exp"] = parseInt(d03_bloonstats[2])
+	save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0))
+	save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0))
+	save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0))
 
 	generator_names = [
 		"cursor",
@@ -152,8 +205,8 @@ _import_save_0_10 = (str) ->
 	for i in [0..Math.min(generator_names.length, d04_generators.length)-1]
 		datum = d04_generators[i].split(",")
 		gen_data[generator_names[i]] = {
-			count: parseInt(datum[0])
-			level: parseInt(datum[1])
+			count: Math.max(0, parse_int(datum[0], 0))
+			level: Math.max(1, parse_int(datum[1], 1))
 		}
 		if legacy_generator_names[i] != generator_names[i]
 			gen_data[legacy_generator_names[i]] = gen_data[generator_names[i]]
@@ -185,6 +238,11 @@ _import_save_0_10 = (str) ->
 		battle.active = false
 		battle.recalculate_rewards()
 
+	save["prestige_count"] = 0
+	if data[8]
+		d09_prestige = data[8].split("|")
+		save["prestige_count"] = Math.max(0, parse_int(d09_prestige[0], 0))
+
 	return save
 
 
@@ -201,22 +259,22 @@ _import_save_0_05 = (str) ->
 	data = str.split("||", 5)
 
 	save_time = new Date()
-	save_time.setTime(parseInt(data[1]))
+	save_time.setTime(parse_int(data[1], new Date().getTime()))
 	save["save_time"] = save_time
 
 	d02_basedata = data[2].split("|")
-	save["play_time"] = parseFloat(d02_basedata[0])
-	save["total_play_time"] = parseFloat(d02_basedata[1])
-	save["bloons"] = parseFloat(d02_basedata[2])
-	save["total_bloons"] = parseFloat(d02_basedata[3])
-	save["total_total_bloons"] = parseFloat(d02_basedata[4])
-	save["clicks"] = parseFloat(d02_basedata[5])
-	save["total_clicks"] = parseFloat(d02_basedata[6])
+	save["play_time"] = parse_num(d02_basedata[0], -1)
+	save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0))
+	save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0))
+	save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0))
+	save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0))
+	save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0))
+	save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0))
 
 	d03_bloonstats = data[3].split("|")
-	save["bloon_exp"] = parseInt(d03_bloonstats[0])
-	save["sliggoo_exp"] = parseInt(d03_bloonstats[1])
-	save["goodra_exp"] = parseInt(d03_bloonstats[2])
+	save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0))
+	save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0))
+	save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0))
 
 	generator_names = [
 		"cursor",
@@ -260,8 +318,8 @@ _import_save_0_05 = (str) ->
 	for i in [0..Math.min(generator_names.length, d04_generators.length)-1]
 		datum = d04_generators[i].split(",")
 		gen_data[generator_names[i]] = {
-			count: parseInt(datum[0])
-			level: parseInt(datum[1])
+			count: Math.max(0, parse_int(datum[0], 0))
+			level: Math.max(1, parse_int(datum[1], 1))
 		}
 		if legacy_generator_names[i] != generator_names[i]
 			gen_data[legacy_generator_names[i]] = gen_data[generator_names[i]]

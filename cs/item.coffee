@@ -21,9 +21,9 @@ class Item
 		@unlock_condition = ->
 
 		@buy = ->
-			if @locked or basedata.bloons < @cost
+			if @locked or basedata.balance() < @cost
 				return false
-			basedata.bloons -= @cost
+			basedata.spend(@cost)
 			@bought = true
 			play_sound("upgrade")
 			recalc() # everything you buy has recalculatory effects.

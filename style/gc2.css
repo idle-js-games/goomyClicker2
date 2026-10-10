@@ -123,8 +123,8 @@ button:active { transform: translateY(2px); box-shadow: 0 1px 0 #a56b00; }
 	#centre{ padding-bottom: 26px; }
 }
 
-#menu_tabs{ display:flex; gap:8px; margin-bottom:10px; }
-.menu-tab{ font-size:14px; margin:0; padding:6px 10px; }
+#menu_tabs{ display:flex; gap:8px; margin-bottom:10px; overflow-x:auto; overflow-y:hidden; flex-wrap:nowrap; scrollbar-width:thin; }
+.menu-tab{ font-size:14px; margin:0; padding:6px 10px; flex:0 0 auto; white-space:nowrap; }
 .menu-tab.active{ filter: saturate(1.2); outline: 2px solid rgba(255,255,255,0.45); }
 .menu-panel{ display:none; }
 .menu-panel.active{ display:block; }
@@ -168,3 +168,24 @@ select:focus{
 }
 select option{ color:#111127; background:#fff7c8; }
 button:disabled{ cursor:not-allowed; opacity:.55; filter:grayscale(.35); transform:none; }
+
+#changelog_panel{ padding: 8px; border-radius: 12px; border:1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); }
+#changelog_panel > p{ font-size: 11px; opacity: 0.8; margin-top: 0; }
+.changelog-entry{ padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,0.15); }
+.changelog-entry:last-child{ border-bottom: none; }
+.changelog-meta{ font-size: 11px; color: #9cf3ff; }
+.changelog-title{ font-size: 15px; margin: 2px 0 6px; color: #ffe896; }
+.changelog-changes{ margin: 0; padding-left: 18px; font-size: 12px; line-height: 1.45; }
+.changelog-changes li{ margin-bottom: 3px; }
+
+#settings_save_status{ font-size: 11px; color: #9cf3ff; margin: 6px 0; min-height: 14px; }
+
+#prestige_panel{ padding: 8px; border-radius: 12px; border:1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.2); }
+#prestige_panel > p{ font-size: 11px; opacity: 0.85; margin-top: 0; }
+#prestige_panel > div{ font-size: 12px; margin: 4px 0; }
+#prestige_progress_bar{ width: 100%; height: 12px; margin: 6px 0; }
+#prestige_status{ font-size: 11px; color: #9cf3ff; margin: 6px 0; min-height: 14px; }
+#prestige_tiers{ width: 100%; font-size: 11px; border-collapse: collapse; }
+#prestige_tiers td{ padding: 2px 6px; border-top: 1px solid rgba(255,255,255,0.12); }
+.prestige-tier-status{ text-align: right; color: #ffe896; }
+.tooltip-bulk-cost{ font-size: 9pt; }
