@@ -68,12 +68,14 @@ basedata =
 		@add_precise("bloons", -n)
 
 	add_precise: (key, n) ->
+		return unless isFinite(n) and isFinite(@[key])
 		t = @[key] + n
 		comp_key = key + "_comp"
 		if Math.abs(@[key]) >= Math.abs(n)
 			@[comp_key] += (@[key] - t) + n
 		else
 			@[comp_key] += (n - t) + @[key]
+		@[comp_key] = 0 unless isFinite(@[comp_key])
 		@[key] = t
 
 	click: ->

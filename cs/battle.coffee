@@ -57,6 +57,7 @@ battle =
 	eternal_hp_scale: 7.5
 	eternal_tap_reward: 0.10
 	eternal_bps_reward: 0.05
+	MAX_ETERNAL_STAGE: 999
 	previous_bloon: ->
 		return null if @defeated <= 0
 		if @eternal_stage > 0 && @current_index >= @bloons.length
@@ -135,7 +136,7 @@ battle =
 		@active = false
 		@defeated += 1
 		if bloon.eternal
-			@eternal_stage += 1
+			@eternal_stage = Math.min(@eternal_stage + 1, @MAX_ETERNAL_STAGE)
 		else
 			@current_index = Math.min(@current_index + 1, @bloons.length)
 		@tap_mult += bloon.tap_reward

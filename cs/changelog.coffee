@@ -4,6 +4,17 @@
 
 changelog_entries = [
 	{
+		date: "2026-10-15"
+		version: "v1.3.1"
+		title: "Save-import security hardening"
+		changes: [
+			"Fixed a critical save-import flaw where an overflowed value (a count large enough that parseInt returns Infinity) could turn the Bloons balance into NaN and make every purchase free while the corrupted state was re-saved forever. Imported generator counts, levels and Eternal Bloon stages are now clamped to finite, bounded values before use."
+			"Fixed a critical flaw where an unparseable save caused the game to delete the player's stored progress. A bad save is now quarantined under a separate key so it can be recovered, and the real save is never overwritten."
+			"Eternal Bloon stages are now bounded to 999, closing a crafted-save freeze that could hang the page for minutes on load."
+			"The compensated-summation accumulator now rejects non-finite inputs, so an infinite value can never poison the balance again."
+		]
+	}
+	{
 		date: "2026-10-10"
 		version: "v1.3"
 		title: "Prestige & cost formula corrections"

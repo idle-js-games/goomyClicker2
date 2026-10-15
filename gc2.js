@@ -15,7 +15,7 @@
                       0.10%
 
   */
-  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_OFFLINE_MS, MAX_TICK_MS, PlusMarker, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
+  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_ETERNAL_STAGE, MAX_GENERATOR_COUNT, MAX_GENERATOR_LEVEL, MAX_OFFLINE_MS, MAX_TICK_MS, PlusMarker, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clamp_finite, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
     indexOf = [].indexOf,
     hasProp = {}.hasOwnProperty;
 
@@ -283,12 +283,18 @@
     },
     add_precise: function(key, n) {
       var comp_key, t;
+      if (!(isFinite(n) && isFinite(this[key]))) {
+        return;
+      }
       t = this[key] + n;
       comp_key = key + "_comp";
       if (Math.abs(this[key]) >= Math.abs(n)) {
         this[comp_key] += (this[key] - t) + n;
       } else {
         this[comp_key] += (n - t) + this[key];
+      }
+      if (!isFinite(this[comp_key])) {
+        this[comp_key] = 0;
       }
       return this[key] = t;
     },
@@ -557,6 +563,7 @@
     eternal_hp_scale: 7.5,
     eternal_tap_reward: 0.10,
     eternal_bps_reward: 0.05,
+    MAX_ETERNAL_STAGE: 999,
     previous_bloon: function() {
       var stage;
       if (this.defeated <= 0) {
@@ -665,7 +672,7 @@
       this.active = false;
       this.defeated += 1;
       if (bloon.eternal) {
-        this.eternal_stage += 1;
+        this.eternal_stage = Math.min(this.eternal_stage + 1, this.MAX_ETERNAL_STAGE);
       } else {
         this.current_index = Math.min(this.current_index + 1, this.bloons.length);
       }
@@ -863,6 +870,15 @@
   // Entries are traced back from this repository's git history (oldest at the
   // bottom); keep adding new entries at the top.
   changelog_entries = [
+    {
+      date: "2026-10-15",
+      version: "v1.3.1",
+      title: "Save-import security hardening",
+      changes: ["Fixed a critical save-import flaw where an overflowed value (a count large enough that parseInt returns Infinity) could turn the Bloons balance into NaN and make every purchase free while the corrupted state was re-saved forever. Imported generator counts, levels and Eternal Bloon stages are now clamped to finite, bounded values before use.",
+    "Fixed a critical flaw where an unparseable save caused the game to delete the player's stored progress. A bad save is now quarantined under a separate key so it can be recovered, and the real save is never overwritten.",
+    "Eternal Bloon stages are now bounded to 999, closing a crafted-save freeze that could hang the page for minutes on load.",
+    "The compensated-summation accumulator now rejects non-finite inputs, so an infinite value can never poison the balance again."]
+    },
     {
       date: "2026-10-10",
       version: "v1.3",
@@ -1518,8 +1534,26 @@
     }
   };
 
+  // clamp a loaded number into a finite range. A value that is already Infinity
+  // or NaN (e.g. a count so large that parseInt overflows) falls back to the
+  // minimum instead of being admitted into the simulation.
+  clamp_finite = function(value, min, max, fallback = min) {
+    var n;
+    n = parseFloat(value);
+    if (!isFinite(n)) {
+      return fallback;
+    }
+    return Math.min(max, Math.max(min, n));
+  };
+
   // offline progress granted when loading a save is capped at one day
   MAX_OFFLINE_MS = 24 * 60 * 60 * 1000;
+
+  MAX_GENERATOR_COUNT = 1e15;
+
+  MAX_GENERATOR_LEVEL = 300;
+
+  MAX_ETERNAL_STAGE = 999;
 
   number_format_load_codes = {
     "0": "full",
@@ -1540,7 +1574,10 @@
         save_data = import_save(b64_to_sstr(window.localStorage["gc2.savefile"]));
       } catch (error1) {
         error = error1;
-        console.warn("Could not load local save; clearing invalid save data.", error);
+        // never destroy the stored save: quarantine the unparseable value
+        // so it can be recovered, then start a fresh run
+        console.warn("Could not load local save; quarantining invalid save data.", error);
+        window.localStorage["gc2.savefile.corrupt"] = window.localStorage["gc2.savefile"];
         window.localStorage["gc2.savefile"] = "";
         return;
       }
@@ -1588,8 +1625,8 @@
       for (k = 0, len2 = generators.length; k < len2; k++) {
         generator = generators[k];
         if (save_data.generators[generator.name]) {
-          generator.count = save_data.generators[generator.name].count;
-          generator.level = save_data.generators[generator.name].level;
+          generator.count = clamp_finite(save_data.generators[generator.name].count, 0, MAX_GENERATOR_COUNT);
+          generator.level = clamp_finite(save_data.generators[generator.name].level, 1, MAX_GENERATOR_LEVEL, 1);
         } else {
           generator.count = 0;
           generator.level = 1;
@@ -1704,7 +1741,7 @@
       saved_defeated = Math.max(0, parseInt(d08_battle[0]) || 0);
       saved_eternal_stage = parseInt(d08_battle[2]);
       battle.current_index = Math.min(saved_defeated, battle.bloons.length);
-      battle.eternal_stage = isFinite(saved_eternal_stage) ? Math.max(0, saved_eternal_stage) : Math.max(0, saved_defeated - battle.bloons.length);
+      battle.eternal_stage = isFinite(saved_eternal_stage) ? clamp_finite(saved_eternal_stage, 0, MAX_ETERNAL_STAGE) : clamp_finite(saved_defeated - battle.bloons.length, 0, MAX_ETERNAL_STAGE);
       battle.defeated = battle.current_index + battle.eternal_stage;
       battle.active = false;
       battle.recalculate_rewards();

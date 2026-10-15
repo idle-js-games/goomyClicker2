@@ -9,8 +9,20 @@ parse_int = (value, fallback = 0) ->
 	n = parseInt(value, 10)
 	if isFinite(n) then n else fallback
 
+# clamp a loaded number into a finite range. A value that is already Infinity
+# or NaN (e.g. a count so large that parseInt overflows) falls back to the
+# minimum instead of being admitted into the simulation.
+clamp_finite = (value, min, max, fallback = min) ->
+	n = parseFloat(value)
+	return fallback unless isFinite(n)
+	Math.min(max, Math.max(min, n))
+
 # offline progress granted when loading a save is capped at one day
 MAX_OFFLINE_MS = 24 * 60 * 60 * 1000
+
+MAX_GENERATOR_COUNT = 1e15
+MAX_GENERATOR_LEVEL = 300
+MAX_ETERNAL_STAGE = 999
 
 number_format_load_codes = {
 	"0": "full"
@@ -30,7 +42,10 @@ load_save_from_local_storage = () ->
 		try
 			save_data = import_save(b64_to_sstr(window.localStorage["gc2.savefile"]))
 		catch error
-			console.warn("Could not load local save; clearing invalid save data.", error)
+			# never destroy the stored save: quarantine the unparseable value
+			# so it can be recovered, then start a fresh run
+			console.warn("Could not load local save; quarantining invalid save data.", error)
+			window.localStorage["gc2.savefile.corrupt"] = window.localStorage["gc2.savefile"]
 			window.localStorage["gc2.savefile"] = ""
 			return
 		return unless save_data
@@ -79,8 +94,8 @@ load_save_from_local_storage = () ->
 
 		for generator in generators
 			if save_data.generators[generator.name]
-				generator.count = save_data.generators[generator.name].count
-				generator.level = save_data.generators[generator.name].level
+				generator.count = clamp_finite(save_data.generators[generator.name].count, 0, MAX_GENERATOR_COUNT)
+				generator.level = clamp_finite(save_data.generators[generator.name].level, 1, MAX_GENERATOR_LEVEL, 1)
 			else
 				generator.count = 0
 				generator.level = 1
@@ -233,7 +248,7 @@ _import_save_0_10 = (str) ->
 		saved_defeated = Math.max(0, parseInt(d08_battle[0]) || 0)
 		saved_eternal_stage = parseInt(d08_battle[2])
 		battle.current_index = Math.min(saved_defeated, battle.bloons.length)
-		battle.eternal_stage = if isFinite(saved_eternal_stage) then Math.max(0, saved_eternal_stage) else Math.max(0, saved_defeated - battle.bloons.length)
+		battle.eternal_stage = if isFinite(saved_eternal_stage) then clamp_finite(saved_eternal_stage, 0, MAX_ETERNAL_STAGE) else clamp_finite(saved_defeated - battle.bloons.length, 0, MAX_ETERNAL_STAGE)
 		battle.defeated = battle.current_index + battle.eternal_stage
 		battle.active = false
 		battle.recalculate_rewards()
