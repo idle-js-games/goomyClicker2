@@ -20,7 +20,7 @@ clamp_finite = (value, min, max, fallback = min) ->
 # offline progress granted when loading a save is capped at one day
 MAX_OFFLINE_MS = 24 * 60 * 60 * 1000
 
-MAX_GENERATOR_COUNT = 1e15
+MAX_GENERATOR_COUNT = 1e21
 MAX_GENERATOR_LEVEL = 300
 MAX_ETERNAL_STAGE = 999
 
@@ -220,7 +220,7 @@ _import_save_0_10 = (str) ->
 	for i in [0..Math.min(generator_names.length, d04_generators.length)-1]
 		datum = d04_generators[i].split(",")
 		gen_data[generator_names[i]] = {
-			count: Math.max(0, parse_int(datum[0], 0))
+			count: Math.max(0, parse_num(datum[0], 0))
 			level: Math.max(1, parse_int(datum[1], 1))
 		}
 		if legacy_generator_names[i] != generator_names[i]
@@ -333,7 +333,7 @@ _import_save_0_05 = (str) ->
 	for i in [0..Math.min(generator_names.length, d04_generators.length)-1]
 		datum = d04_generators[i].split(",")
 		gen_data[generator_names[i]] = {
-			count: Math.max(0, parse_int(datum[0], 0))
+			count: Math.max(0, parse_num(datum[0], 0))
 			level: Math.max(1, parse_int(datum[1], 1))
 		}
 		if legacy_generator_names[i] != generator_names[i]

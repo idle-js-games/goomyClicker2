@@ -877,7 +877,11 @@
       changes: ["Fixed a critical save-import flaw where an overflowed value (a count large enough that parseInt returns Infinity) could turn the Bloons balance into NaN and make every purchase free while the corrupted state was re-saved forever. Imported generator counts, levels and Eternal Bloon stages are now clamped to finite, bounded values before use.",
     "Fixed a critical flaw where an unparseable save caused the game to delete the player's stored progress. A bad save is now quarantined under a separate key so it can be recovered, and the real save is never overwritten.",
     "Eternal Bloon stages are now bounded to 999, closing a crafted-save freeze that could hang the page for minutes on load.",
-    "The compensated-summation accumulator now rejects non-finite inputs, so an infinite value can never poison the balance again."]
+    "The compensated-summation accumulator now rejects non-finite inputs, so an infinite value can never poison the balance again.",
+    "Fixed a critical save-codec flaw: the binary-field length header was read as half its real size, so any save whose upgrade bitfield contained a run of set bits decoded to garbage. Exported saves could implode into unreadable data on the next load. Saves now round-trip byte-exact.",
+    "Fixed a temporary save corruption for generator counts above one sextillion: the count was written in a format the loader could not parse back, silently resetting the tower to 1. Counts and levels are now serialized losslessly up to the 1e21 import bound.",
+    "The base64 save decoder now refuses oversized payloads instead of decoding them, closing a crafted-save CPU/memory exhaustion vector.",
+    "Added Subresource Integrity hashes for all vendored libraries and a strict Content-Security-Policy (self-only scripts, no remote connections, no plugins, no framing), so a tampered or third-party-injected script can no longer run."]
     },
     {
       date: "2026-10-10",
@@ -1549,7 +1553,7 @@
   // offline progress granted when loading a save is capped at one day
   MAX_OFFLINE_MS = 24 * 60 * 60 * 1000;
 
-  MAX_GENERATOR_COUNT = 1e15;
+  MAX_GENERATOR_COUNT = 1e21;
 
   MAX_GENERATOR_LEVEL = 300;
 
@@ -1708,7 +1712,7 @@
     for (i = k = 0, ref = Math.min(generator_names.length, d04_generators.length) - 1; (0 <= ref ? k <= ref : k >= ref); i = 0 <= ref ? ++k : --k) {
       datum = d04_generators[i].split(",");
       gen_data[generator_names[i]] = {
-        count: Math.max(0, parse_int(datum[0], 0)),
+        count: Math.max(0, parse_num(datum[0], 0)),
         level: Math.max(1, parse_int(datum[1], 1))
       };
       if (legacy_generator_names[i] !== generator_names[i]) {
@@ -1781,7 +1785,7 @@
     for (i = k = 0, ref = Math.min(generator_names.length, d04_generators.length) - 1; (0 <= ref ? k <= ref : k >= ref); i = 0 <= ref ? ++k : --k) {
       datum = d04_generators[i].split(",");
       gen_data[generator_names[i]] = {
-        count: Math.max(0, parse_int(datum[0], 0)),
+        count: Math.max(0, parse_num(datum[0], 0)),
         level: Math.max(1, parse_int(datum[1], 1))
       };
       if (legacy_generator_names[i] !== generator_names[i]) {
@@ -2442,7 +2446,7 @@
       gen_stats = [];
       for (k = 0, len2 = generators.length; k < len2; k++) {
         generator = generators[k];
-        gen_stat_string = [generator.count, generator.level].join(",");
+        gen_stat_string = [repr_sstr(generator.count), repr_sstr(generator.level)].join(",");
         gen_stats.push(gen_stat_string);
       }
       return gen_stats.join("|");

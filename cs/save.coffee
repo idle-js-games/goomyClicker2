@@ -92,7 +92,7 @@ export_save = ->
 	d05_generators = (->
 		gen_stats = []
 		for generator in generators
-			gen_stat_string = [generator.count, generator.level].join(",")
+			gen_stat_string = [repr_sstr(generator.count), repr_sstr(generator.level)].join(",")
 			gen_stats.push(gen_stat_string)
 		return gen_stats.join("|")
 	)()
