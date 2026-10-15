@@ -106,9 +106,6 @@ class Generator
 		play_sound("upgrade")
 		return true
 
-	show_tooltip: () ->
-		$("##{@name}").qtip("lol")
-
 	set_base_cost: (cost) ->
 		@base_cost = cost
 		@lvup_cost = @base_cost * 100

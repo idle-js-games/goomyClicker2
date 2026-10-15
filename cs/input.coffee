@@ -90,7 +90,7 @@ init_input = ->
 		battle.render()
 		save_to_local_storage()
 	$("#settings_save_now").click ->
-		save_to_local_storage()
+		save_to_local_storage(true)
 		now = new Date()
 		$("#settings_save_status").html("Progress saved at " + now.toLocaleTimeString() + ".")
 

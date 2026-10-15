@@ -5,6 +5,21 @@
 changelog_entries = [
 	{
 		date: "2026-10-15"
+		version: "v1.3.2"
+		title: "Long-session stability and UI lifecycle fixes"
+		changes: [
+			"Boss-fight trophies are capped so the Battle tab no longer grows a node per defeated boss forever."
+			"Autosave failures (private mode, quota exceeded, disabled storage) are caught instead of throwing on every tick."
+			"A second open tab no longer overwrites the first tab's save: autosave pauses in the tab that detects an external save."
+			"Boss fights no longer time out while the tab is in the background; the fight timer resumes when you return."
+			"Shiny Bloon click handlers no longer accumulate, and its effects are cleared correctly on prestige."
+			"The shop, changelog and trophy scrollers refresh when their content grows."
+			"Click markers measure themselves once instead of four times per click, removing per-click layout thrash."
+			"Small corrections: exact 0 HP now displays as 0, the dead generator tooltip call is gone, the export QR canvas uses valid markup, and the save-format version is a single shared constant."
+		]
+	}
+	{
+		date: "2026-10-15"
 		version: "v1.3.1"
 		title: "Save-import security hardening"
 		changes: [
@@ -142,6 +157,7 @@ render_changelog = ->
 			$changes.append($("<li></li>").text(change))
 		$entry.append($changes)
 		$list.append($entry)
+	refresh_scrollers()
 
 @changelog_entries = changelog_entries
 @render_changelog = render_changelog

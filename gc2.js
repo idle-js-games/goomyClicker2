@@ -15,7 +15,7 @@
                       0.10%
 
   */
-  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_ETERNAL_STAGE, MAX_GENERATOR_COUNT, MAX_GENERATOR_LEVEL, MAX_OFFLINE_MS, MAX_TICK_MS, PlusMarker, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clamp_finite, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
+  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_ETERNAL_STAGE, MAX_GENERATOR_COUNT, MAX_GENERATOR_LEVEL, MAX_OFFLINE_MS, MAX_TICK_MS, PlusMarker, SAVE_FORMAT_VERSION, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clamp_finite, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, refresh_scrollers, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_conflict, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
     indexOf = [].indexOf,
     hasProp = {}.hasOwnProperty;
 
@@ -564,6 +564,7 @@
     eternal_tap_reward: 0.10,
     eternal_bps_reward: 0.05,
     MAX_ETERNAL_STAGE: 999,
+    MAX_BATTLE_TROPHIES: 40,
     previous_bloon: function() {
       var stage;
       if (this.defeated <= 0) {
@@ -684,6 +685,10 @@
       this.hp = this.max_hp;
       play_sound("win");
       $("#battle_trophies").append(`<div class='battle-trophy'>${name}<br/>+${(bloon.tap_reward * 100).toFixed(1)}% Tap, +${(bloon.bps_reward * 100).toFixed(1)}% BPS</div>`);
+      if ($("#battle_trophies .battle-trophy").length > this.MAX_BATTLE_TROPHIES) {
+        $("#battle_trophies .battle-trophy").slice(0, -this.MAX_BATTLE_TROPHIES).remove();
+      }
+      refresh_scrollers();
       this.last_battle_image_signature = null;
       this.last_main_image_signature = null;
       this.render_status(`Victory! ${name} defeated. Next up: ${this.current_bloon().name}.`);
@@ -717,6 +722,13 @@
       if (!(isFinite(ms) && ms > 0)) {
         return;
       }
+      if (this.resume_guard) {
+        this.resume_guard = false;
+        return;
+      }
+      if (document.hidden) {
+        return;
+      }
       this.timer = Math.max(0, this.timer - ms);
       if (this.timer <= 0) {
         return this.lose();
@@ -727,6 +739,14 @@
       }
       if (this.active) {
         return this.render_values();
+      }
+    },
+    on_visibility: function() {
+      if (document.hidden) {
+        return;
+      }
+      if (this.active) {
+        return this.resume_guard = true;
       }
     },
     render_status: function(message) {
@@ -756,12 +776,14 @@
       }
     },
     render_values: function() {
-      var bloon;
+      var bloon, hp_value, max_hp_value;
       bloon = this.current_bloon();
+      hp_value = this.active ? this.hp : bloon.hp;
+      max_hp_value = this.active ? this.max_hp : bloon.hp;
       $("#battle_timer").html((Math.max(0, this.timer) / 1000).toFixed(1) + "s");
-      $("#battle_hp").attr("max", this.max_hp || bloon.hp);
-      $("#battle_hp").attr("value", Math.max(0, this.hp || bloon.hp));
-      $("#battle_hp_value").html(reprnum(Math.ceil(Math.max(0, this.hp || bloon.hp))) + " / " + reprnum(this.max_hp || bloon.hp) + " HP");
+      $("#battle_hp").attr("max", max_hp_value);
+      $("#battle_hp").attr("value", Math.max(0, hp_value));
+      $("#battle_hp_value").html(reprnum(Math.ceil(Math.max(0, hp_value))) + " / " + reprnum(max_hp_value) + " HP");
       $("#battle_tap").prop("disabled", !this.active);
       return $("#battle_retreat").prop("disabled", !this.active);
     },
@@ -776,6 +798,10 @@
   };
 
   this.battle = battle;
+
+  $(document).on("visibilitychange.gc2", function() {
+    return battle.on_visibility();
+  });
 
   bloon = {
     exp: 0,
@@ -870,6 +896,19 @@
   // Entries are traced back from this repository's git history (oldest at the
   // bottom); keep adding new entries at the top.
   changelog_entries = [
+    {
+      date: "2026-10-15",
+      version: "v1.3.2",
+      title: "Long-session stability and UI lifecycle fixes",
+      changes: ["Boss-fight trophies are capped so the Battle tab no longer grows a node per defeated boss forever.",
+    "Autosave failures (private mode, quota exceeded, disabled storage) are caught instead of throwing on every tick.",
+    "A second open tab no longer overwrites the first tab's save: autosave pauses in the tab that detects an external save.",
+    "Boss fights no longer time out while the tab is in the background; the fight timer resumes when you return.",
+    "Shiny Bloon click handlers no longer accumulate, and its effects are cleared correctly on prestige.",
+    "The shop, changelog and trophy scrollers refresh when their content grows.",
+    "Click markers measure themselves once instead of four times per click, removing per-click layout thrash.",
+    "Small corrections: exact 0 HP now displays as 0, the dead generator tooltip call is gone, the export QR canvas uses valid markup, and the save-format version is a single shared constant."]
+    },
     {
       date: "2026-10-15",
       version: "v1.3.1",
@@ -972,13 +1011,12 @@
   ];
 
   render_changelog = function() {
-    var $changes, $entry, $list, change, entry, j, k, len1, len2, meta, ref, results;
+    var $changes, $entry, $list, change, entry, j, k, len1, len2, meta, ref;
     $list = $("#changelog_list");
     if (!$list.length) {
       return;
     }
     $list.empty();
-    results = [];
     for (j = 0, len1 = changelog_entries.length; j < len1; j++) {
       entry = changelog_entries[j];
       meta = entry.date + (entry.version ? "  \u00b7  " + entry.version : "");
@@ -992,9 +1030,9 @@
         $changes.append($("<li></li>").text(change));
       }
       $entry.append($changes);
-      results.push($list.append($entry));
+      $list.append($entry);
     }
-    return results;
+    return refresh_scrollers();
   };
 
   this.changelog_entries = changelog_entries;
@@ -1137,10 +1175,6 @@
       recalc();
       play_sound("upgrade");
       return true;
-    }
-
-    show_tooltip() {
-      return $(`#${this.name}`).qtip("lol");
     }
 
     set_base_cost(cost) {
@@ -1457,7 +1491,7 @@
     });
     $("#settings_save_now").click(function() {
       var now;
-      save_to_local_storage();
+      save_to_local_storage(true);
       now = new Date();
       return $("#settings_save_status").html("Progress saved at " + now.toLocaleTimeString() + ".");
     });
@@ -1666,7 +1700,7 @@
   import_save = function(str) {
     var version;
     version = str.split("||", 1)[0];
-    if (version === "0.13") {
+    if (version === SAVE_FORMAT_VERSION) {
       return _import_save_0_10(str);
     } else if (version === "0.12") {
       return _import_save_0_10(str);
@@ -1796,6 +1830,10 @@
     return save;
   };
 
+  refresh_scrollers = function() {
+    return $(".nano").nanoScroller();
+  };
+
   destroy_qtip = function($el) {
     var e;
     try {
@@ -1843,7 +1881,8 @@
       }
     }
     if (created) {
-      return clear_hud_cache();
+      clear_hud_cache();
+      return refresh_scrollers();
     }
   };
 
@@ -2238,6 +2277,7 @@
 
   PlusMarker = class PlusMarker {
     constructor(caption, x, y, anims) {
+      var $marker, height, width;
       this.id = plus_marker_id;
       plus_marker_id += 1;
       plus_markers[this.id] = this;
@@ -2245,12 +2285,15 @@
       this.init_anims = anims ? anims : plus_marker_anims;
       this.anims = this.init_anims;
       $("#gamearea").append(`<div class='plus_marker' id='plus_marker_${this.id}'>${this.caption}</div>`);
-      this.orig_x = Math.max(0, Math.min($(window).width() - $(`#plus_marker_${this.id}`).width(), x - $(`#plus_marker_${this.id}`).width() / 2));
-      this.orig_y = Math.max(0, Math.min($(window).height() - $(`#plus_marker_${this.id}`).height(), y - $(`#plus_marker_${this.id}`).height() / 2));
+      $marker = $(`#plus_marker_${this.id}`);
+      width = $marker.width();
+      height = $marker.height();
+      this.orig_x = Math.max(0, Math.min($(window).width() - width, x - width / 2));
+      this.orig_y = Math.max(0, Math.min($(window).height() - height, y - height / 2));
       this.x = this.orig_x;
       this.y = this.orig_y;
       this.opacity = 1;
-      $(`#plus_marker_${this.id}`).css({
+      $marker.css({
         left: this.x,
         top: this.y,
         opacity: this.opacity
@@ -2367,6 +2410,8 @@
     return basedata.gpc = new_gpc;
   };
 
+  SAVE_FORMAT_VERSION = "0.13";
+
   number_format_save_codes = {
     full: "0",
     small: "1",
@@ -2374,9 +2419,34 @@
     engineering: "3"
   };
 
-  save_to_local_storage = function() {
-    return window.localStorage["gc2.savefile"] = sstr_to_b64(export_save());
+  save_conflict = false;
+
+  save_to_local_storage = function(force = false) {
+    var e;
+    if (force) {
+      save_conflict = false;
+    }
+    if (save_conflict) {
+      return false;
+    }
+    try {
+      window.localStorage["gc2.savefile"] = sstr_to_b64(export_save());
+    } catch (error1) {
+      e = error1;
+      return false;
+    }
+    return true;
   };
+
+  $(window).on("storage.gc2", function(e) {
+    var key;
+    key = (e.originalEvent && e.originalEvent.key) || e.key;
+    if (key !== "gc2.savefile") {
+      return;
+    }
+    save_conflict = true;
+    return $("#settings_save_status").html("Another tab saved progress. Reload to sync; autosaving is paused here so it cannot overwrite that save.");
+  });
 
   hexstr = "0123456789abcdef";
 
@@ -2436,7 +2506,7 @@
 
   export_save = function() {
     var d01_version, d02_savetime, d03_basedata, d04_bloonstats, d05_generators, d06_upgrades, d07_settings, d08_battle, d09_prestige;
-    d01_version = "0.13";
+    d01_version = SAVE_FORMAT_VERSION;
     d02_savetime = "" + new Date().getTime();
     // GPS, EXPPS, and GPC are recalculable, and so are not included here.
     d03_basedata = [basedata.game_started ? repr_sstr(basedata.play_time) : "-1", repr_sstr(basedata.total_play_time), repr_sstr(Math.floor(basedata.balance())), repr_sstr(Math.floor(basedata.total_bloons)), repr_sstr(Math.floor(basedata.total_total_bloons)), repr_sstr(basedata.clicks), repr_sstr(basedata.total_clicks)].join("|");
@@ -2546,7 +2616,7 @@
             top: this.y,
             opacity: 0
           });
-          return $("#shiny_bloon").click((e) => {
+          return $("#shiny_bloon").off("click.gc2shiny").on("click.gc2shiny", (e) => {
             return this.click(e.pageX, e.pageY);
           });
         }
@@ -2554,7 +2624,7 @@
     },
     click: function(x, y) {
       var gain, shiny_plus_marker;
-      $("#shiny_bloon").unbind();
+      $("#shiny_bloon").off("click.gc2shiny");
       $("#shiny_bloon").hide();
       this.appeared = false;
       this.opacity = 0;
@@ -2816,9 +2886,13 @@
     time_left: 259200000 //  72 hours in milliseconds
   };
 
-  this.export_save = save_to_local_storage;
+  this.export_save = export_save;
 
-  this.import_save = load_save_from_local_storage;
+  this.import_save = import_save;
+
+  this.save_to_local_storage = save_to_local_storage;
+
+  this.load_save_from_local_storage = load_save_from_local_storage;
 
   this.gens = gens;
 

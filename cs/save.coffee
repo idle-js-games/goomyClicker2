@@ -1,3 +1,5 @@
+SAVE_FORMAT_VERSION = "0.13"
+
 number_format_save_codes = {
 	full: "0"
 	small: "1"
@@ -5,8 +7,22 @@ number_format_save_codes = {
 	engineering: "3"
 }
 
-save_to_local_storage = ->
-	window.localStorage["gc2.savefile"] = sstr_to_b64(export_save())
+save_conflict = false
+
+save_to_local_storage = (force = false) ->
+	save_conflict = false if force
+	return false if save_conflict
+	try
+		window.localStorage["gc2.savefile"] = sstr_to_b64(export_save())
+	catch e
+		return false
+	return true
+
+$(window).on "storage.gc2", (e) ->
+	key = (e.originalEvent and e.originalEvent.key) or e.key
+	return unless key == "gc2.savefile"
+	save_conflict = true
+	$("#settings_save_status").html("Another tab saved progress. Reload to sync; autosaving is paused here so it cannot overwrite that save.")
 
 hexstr = "0123456789abcdef"
 bitmap = {
@@ -68,7 +84,7 @@ sstr_to_bitfield = (sstr) ->
 
 export_save = ->
 
-	d01_version = "0.13"
+	d01_version = SAVE_FORMAT_VERSION
 
 	d02_savetime = "" + new Date().getTime()
 

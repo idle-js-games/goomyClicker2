@@ -1,3 +1,5 @@
+refresh_scrollers = -> $(".nano").nanoScroller()
+
 destroy_qtip = ($el) ->
 	try
 		$el.qtip("destroy", true) if $el.data("qtip")
@@ -31,7 +33,9 @@ ensure_item_dom = (item) ->
 	if $tile.data("itemHidden") != want_hidden
 		$tile.data("itemHidden", want_hidden)
 		if want_hidden then $tile.hide() else $tile.show()
-	clear_hud_cache() if created
+	if created
+		clear_hud_cache()
+		refresh_scrollers()
 
 create_item_tooltip_content = (item) ->
 	$("##{item.name}_tooltip").remove()

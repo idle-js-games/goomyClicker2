@@ -15,12 +15,15 @@ class PlusMarker
 		@init_anims = if anims then anims else plus_marker_anims
 		@anims = @init_anims
 		$("#gamearea").append("<div class='plus_marker' id='plus_marker_#{@id}'>#{@caption}</div>")
-		@orig_x = Math.max(0, Math.min($(window).width() - $("#plus_marker_#{@id}").width(), x - $("#plus_marker_#{@id}").width() / 2))
-		@orig_y = Math.max(0, Math.min($(window).height() - $("#plus_marker_#{@id}").height(), y - $("#plus_marker_#{@id}").height() / 2))
+		$marker = $("#plus_marker_#{@id}")
+		width = $marker.width()
+		height = $marker.height()
+		@orig_x = Math.max(0, Math.min($(window).width() - width, x - width / 2))
+		@orig_y = Math.max(0, Math.min($(window).height() - height, y - height / 2))
 		@x = @orig_x
 		@y = @orig_y
 		@opacity = 1
-		$("#plus_marker_#{@id}").css({left: @x, top: @y, opacity: @opacity})
+		$marker.css({left: @x, top: @y, opacity: @opacity})
 
 	update: (ms) ->
 		@anims -= ms

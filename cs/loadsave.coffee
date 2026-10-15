@@ -129,7 +129,7 @@ import_save = (str) ->
 
 	version = str.split("||", 1)[0]  # first instance of a number
 
-	if version == "0.13"
+	if version == SAVE_FORMAT_VERSION
 		return _import_save_0_10(str)
 	else if version == "0.12"
 		return _import_save_0_10(str)

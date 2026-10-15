@@ -79,10 +79,10 @@ shiny_bloon =
 				$("#shiny_bloon").show()
 				$("#shiny_bloon").css({left: @x, top: @y, opacity: 0})
 
-				$("#shiny_bloon").click (e) => @click e.pageX, e.pageY
+				$("#shiny_bloon").off("click.gc2shiny").on("click.gc2shiny", (e) => @click e.pageX, e.pageY)
 
 	click: (x, y) ->
-		$("#shiny_bloon").unbind()
+		$("#shiny_bloon").off("click.gc2shiny")
 		$("#shiny_bloon").hide()
 		@appeared = false
 		@opacity = 0

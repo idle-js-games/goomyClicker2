@@ -58,6 +58,7 @@ battle =
 	eternal_tap_reward: 0.10
 	eternal_bps_reward: 0.05
 	MAX_ETERNAL_STAGE: 999
+	MAX_BATTLE_TROPHIES: 40
 	previous_bloon: ->
 		return null if @defeated <= 0
 		if @eternal_stage > 0 && @current_index >= @bloons.length
@@ -147,6 +148,8 @@ battle =
 		@hp = @max_hp
 		play_sound("win")
 		$("#battle_trophies").append("<div class='battle-trophy'>#{name}<br/>+#{(bloon.tap_reward * 100).toFixed(1)}% Tap, +#{(bloon.bps_reward * 100).toFixed(1)}% BPS</div>")
+		$("#battle_trophies .battle-trophy").slice(0, -@MAX_BATTLE_TROPHIES).remove() if $("#battle_trophies .battle-trophy").length > @MAX_BATTLE_TROPHIES
+		refresh_scrollers()
 		@last_battle_image_signature = null
 		@last_main_image_signature = null
 		@render_status("Victory! #{name} defeated. Next up: #{@current_bloon().name}.")
@@ -169,12 +172,19 @@ battle =
 	update: (ms) ->
 		return unless @active
 		return unless isFinite(ms) && ms > 0
+		if @resume_guard
+			@resume_guard = false
+			return
+		return if document.hidden
 		@timer = Math.max(0, @timer - ms)
 		if @timer <= 0
 			return @lose()
 		passive_damage = basedata.gps * ms / 1000
 		@damage(passive_damage, false) if passive_damage > 0
 		@render_values() if @active
+	on_visibility: ->
+		return if document.hidden
+		@resume_guard = true if @active
 	render_status: (message) -> $("#battle_status").html(message)
 	image_signature: (sources) ->
 		if $.isArray(sources) then sources.join("|") else sources
@@ -192,10 +202,12 @@ battle =
 			@last_main_image_signature = main_signature
 	render_values: ->
 		bloon = @current_bloon()
+		hp_value = if @active then @hp else bloon.hp
+		max_hp_value = if @active then @max_hp else bloon.hp
 		$("#battle_timer").html((Math.max(0, @timer) / 1000).toFixed(1) + "s")
-		$("#battle_hp").attr("max", @max_hp || bloon.hp)
-		$("#battle_hp").attr("value", Math.max(0, @hp || bloon.hp))
-		$("#battle_hp_value").html(reprnum(Math.ceil(Math.max(0, @hp || bloon.hp))) + " / " + reprnum(@max_hp || bloon.hp) + " HP")
+		$("#battle_hp").attr("max", max_hp_value)
+		$("#battle_hp").attr("value", Math.max(0, hp_value))
+		$("#battle_hp_value").html(reprnum(Math.ceil(Math.max(0, hp_value))) + " / " + reprnum(max_hp_value) + " HP")
 		$("#battle_tap").prop("disabled", !@active)
 		$("#battle_retreat").prop("disabled", !@active)
 	render: ->
@@ -206,3 +218,5 @@ battle =
 		@render_values()
 
 @battle = battle
+
+$(document).on "visibilitychange.gc2", -> battle.on_visibility()
