@@ -22,7 +22,7 @@ $(window).on "storage.gc2", (e) ->
 	key = (e.originalEvent and e.originalEvent.key) or e.key
 	return unless key == "gc2.savefile"
 	save_conflict = true
-	$("#settings_save_status").html("Another tab saved progress. Reload to sync; autosaving is paused here so it cannot overwrite that save.")
+	$("#settings_save_status").html("Autosave is OFF in this tab: another tab saved progress, so writing here would overwrite it. Press Save Now to keep this tab's progress, or reload to pick up the other tab's save.")
 
 hexstr = "0123456789abcdef"
 bitmap = {

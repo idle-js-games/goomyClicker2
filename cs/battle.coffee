@@ -73,7 +73,7 @@ battle =
 			stage = @eternal_stage + 1
 			return {
 				name: "Eternal Bloon (Tier #{stage})"
-				hp: @eternal_base_hp * Math.pow(@eternal_hp_scale, @eternal_stage)
+				hp: clamp_value(@eternal_base_hp * Math.pow(@eternal_hp_scale, @eternal_stage))
 				tap_reward: @eternal_tap_reward + @eternal_stage * 0.01
 				bps_reward: @eternal_bps_reward + @eternal_stage * 0.005
 				image: [ETERNAL_BLOON_IMAGE, ETERNAL_BLOON_FALLBACK]
@@ -122,7 +122,7 @@ battle =
 	tap: ->
 		return unless @active
 		play_sound("tap")
-		@damage(Math.max(1, basedata.gpc))
+		@damage(Math.max(1, basedata.damage_gpc))
 	damage: (n, render_after = true) ->
 		return unless @active
 		return unless isFinite(n) && n > 0
@@ -179,7 +179,7 @@ battle =
 		@timer = Math.max(0, @timer - ms)
 		if @timer <= 0
 			return @lose()
-		passive_damage = basedata.gps * ms / 1000
+		passive_damage = basedata.damage_gps * ms / 1000
 		@damage(passive_damage, false) if passive_damage > 0
 		@render_values() if @active
 	on_visibility: ->

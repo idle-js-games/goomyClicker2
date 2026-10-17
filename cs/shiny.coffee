@@ -91,7 +91,7 @@ shiny_bloon =
 		@cooldown_time = init_cooldown_time
 		if @effect == "bloons"
 			# award = 120 seconds of Bloon production + 200 clicks worth of Bloons
-			gain = basedata.gps * 120 + basedata.gpc * 200
+			gain = clamp_value(basedata.gps * 120 + basedata.gpc * 200)
 			shiny_plus_marker = new PlusMarker("Bonus! +#{reprnum(Math.floor(gain), "long")} Bloons!", x, y, 3000)
 			basedata.earn(gain)
 			return gain

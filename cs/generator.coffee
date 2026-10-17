@@ -3,6 +3,13 @@ generators = []
 
 class Generator
 
+	# Hard bounds for level and count. Beyond these the cost and production
+	# formulas overflow a double (1.3^(L-1) is Infinity past L=2706, 1.15^n past
+	# n=5078), which corrupts the economy and makes the save unloadable, so both
+	# the load path and the live level-up/purchase path clamp against them.
+	@MAX_LEVEL: 999999
+	@MAX_COUNT: 1e21
+
 	constructor: (name) ->
 		@name = name
 		@display_name = name
@@ -36,6 +43,7 @@ class Generator
 	buy: (n) ->
 		bought = 0
 		for i in [0...n]
+			break if @count >= Generator.MAX_COUNT
 			if basedata.balance() < @cost
 				recalc()
 				return bought
@@ -85,7 +93,7 @@ class Generator
 		cost = if @cost_fn then @cost_fn.call(this, n) else NaN
 		cost = base * Math.pow(1 + @cost_rate, n) unless isFinite(cost) && cost > 0
 		cost = base * Math.pow(1.15, n) unless isFinite(cost) && cost > 0
-		Math.max(1, Math.round(cost))
+		clamp_value(Math.max(1, Math.round(cost)))
 
 	# Per-building/monkey purchase cost balance. All fields optional:
 	#   rate:    compound growth per owned unit as a fraction (default 0.15)
@@ -97,11 +105,12 @@ class Generator
 		@cost
 
 	levelup: () ->
+		return false if @level >= Generator.MAX_LEVEL
 		if basedata.balance() < @lvup_cost
 			return false
 		basedata.spend(@lvup_cost)
 		@level += 1
-		@lvup_cost = @base_cost * 100 * Math.pow(1.35, @level - 1)
+		@lvup_cost = clamp_value(@base_cost * 100 * Math.pow(1.35, @level - 1))
 		recalc()
 		play_sound("upgrade")
 		return true

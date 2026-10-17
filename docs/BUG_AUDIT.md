@@ -15,6 +15,56 @@ cosmetic.
 > summation; the pair (value, compensation) tracks the true sum). Also fixed:
 > Monkey Ace's shop tile pointed at a deleted image. Deferred pending further
 > analysis: #1 (battle trophies).
+>
+> **Status 2026-10-15 (v1.3.3):** A second, runtime-exploitable pass was done —
+> see "Runtime-exploitable findings" below. All of them are fixed by the
+> `clamp_value` hard cap (`cs/basedata.coffee`), the `Generator.MAX_LEVEL` /
+> `MAX_BLOON_LEVEL` caps, and the bounded level-up loops.
+
+## Runtime-exploitable findings (v1.3.3)
+
+These were reachable at runtime from a hand-edited save string (the save codec
+accepts any digit string, and the in-app Import button is commented out, so
+injection is via the browser console / `localStorage`). All are fixed; each was
+reproduced in a JSDOM harness before and after the fix.
+
+1. **HIGH — Generator level cap sat above the overflow point.** The import cap
+   was `999999`, but `1.3^(L-1)` is `Infinity` past L=2706 and `1.35^(L-1)`
+   past L=2342. A level in 2342…999999 imported cleanly and made `gen.gps` /
+   `lvup_cost` `Infinity`. With `count = 0` it became `NaN`, which `earn()`
+   rejects: all production stopped silently and the broken state was re-saved
+   every 10 s. Fixed: `Generator.MAX_LEVEL` / `MAX_COUNT` clamp both the import
+   path and the live `levelup()`/`buy()` paths, and every derived value is
+   clamped.
+
+2. **HIGH — Unbounded `bloon.gain_exp` loop = main-thread freeze.** Unlike
+   `sliggoo`/`goodra.gain_exp`, the Bloon's loop had no guard and ran
+   `recalc_gpc()` + `update_all_numbers()` (a full DOM rewrite) per level.
+   `bloon_exp` and `goodra_exp` were imported unclamped, and `parseInt` of a
+   long digit field returns `Infinity`, so one save froze the tab for ~68 s
+   (scale the digits and it is unbounded). Fixed: the loop carries a
+   `guard >= 100000` break, exp fields are clamped to `MAX_EXP`, and
+   `bloon.level_cap` is clamped to `MAX_BLOON_LEVEL`.
+
+3. **HIGH — Per-tick earn path overflowed before dividing.** `gps * ms / 1000`
+   overflows for a *finite* large `gps`; `earn()` then discards the `Infinity`
+   gain, so earnings vanished with no error. Fixed: `gps * (ms / 1000)` plus
+   `clamp_value` in both `basedata.update` and the offline grant.
+
+4. **MED — Live level-up bypassed the cap and lost data.** `Generator#levelup`
+   never checked the cap, so levels earned in play were silently dropped on the
+   next load. Fixed by the same cap check.
+
+5. **MED — `add_precise` guarded inputs but not the result.** Finite + finite
+   could reach `Infinity`, and `Infinity < Infinity` is false, so every purchase
+   became free. Fixed: `clamp_value` on the addend, the sum and the compensation
+   term.
+
+6. **MED — Eternal Bloon HP `Infinity` at high stages** inside the allowed
+   `MAX_ETERNAL_STAGE` range (unkillable fight). Fixed with `clamp_value`.
+
+7. **LOW — Autosave-conflict notice was ambiguous** ("Reload to sync"). Reworded
+   to state that autosaving is off and that Save Now overrides the conflict.
 
 ## A. Unbounded DOM / memory growth
 

@@ -5,6 +5,24 @@
 changelog_entries = [
 	{
 		date: "2026-10-15"
+		version: "v1.3.3"
+		title: "Prestige, upgrade caps and numeric hardening"
+		changes: [
+			"All game numbers are now held below a hard ceiling (1e308). A value that could reach Infinity or NaN is clamped instead, so one bad number can no longer make every purchase free or silently stop all production."
+			"The Bloon's level is capped at 999. Goodra still raises the cap, but never past that, and the level-up loop is bounded so a huge EXP value cannot freeze the game."
+			"Generator levels are capped at 999,999 on every path, not just when loading: level-ups and purchases enforce the same limit, and a level or count can no longer be earned past it and then silently dropped on the next load."
+			"Bloon, Sliggoo and Goodra EXP values are validated on import like every other save field, so a hand-edited save can no longer hang the game."
+			"Offline progress is calculated without overflowing first, so a lategame save no longer loses its idle earnings."
+			"Generator levels are no longer capped at 300 when loading a save; the cap is now 999,999 so a lategame tower keeps its real level instead of silently snapping back."
+			"Prestige is an earnings multiplier only. It no longer feeds the BPS that is channeled into boss-fight damage, so a prestige can no longer overboost fights; boss passive damage and taps use the un-prestiged values."
+			"The per-building BPS in tooltips now carries every global multiplier, prestige included, so it matches the total the HUD reports."
+			"Each Cursor level adds +0.1 EXP/s per Cursor on top of the 0.2 base, so leveling Cursors speeds up Bloon EXP gain."
+			"Number formatting gains ten more illions (unquadragintillion through quinquagintillion) and the missing spaces are restored on untrigintillion and above."
+			"The autosave-conflict notice now says plainly that autosaving is off in this tab and how to recover, instead of just telling you to reload."
+		]
+	}
+	{
+		date: "2026-10-15"
 		version: "v1.3.2"
 		title: "Long-session stability and UI lifecycle fixes"
 		changes: [

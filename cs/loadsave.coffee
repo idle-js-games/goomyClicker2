@@ -20,9 +20,14 @@ clamp_finite = (value, min, max, fallback = min) ->
 # offline progress granted when loading a save is capped at one day
 MAX_OFFLINE_MS = 24 * 60 * 60 * 1000
 
-MAX_GENERATOR_COUNT = 1e21
-MAX_GENERATOR_LEVEL = 300
+# mirror the bounds the Generator class enforces on the live path so the
+# import path cannot admit a value the rest of the game would reject.
+MAX_GENERATOR_COUNT = Generator.MAX_COUNT
+MAX_GENERATOR_LEVEL = Generator.MAX_LEVEL
 MAX_ETERNAL_STAGE = 999
+# Bloon/sliggoo/goodra exp ceilings. Bloon exp feeds a loop that runs a DOM
+# rewrite per level, so an imported Infinity there would freeze the tab.
+MAX_EXP = 1e15
 
 number_format_load_codes = {
 	"0": "full"
@@ -89,8 +94,8 @@ load_save_from_local_storage = () ->
 		basedata.prestige_count = Math.max(0, Math.min(15, parse_int(save_data["prestige_count"], 0)))
 		basedata.prestige_mult = Math.pow(2, basedata.prestige_count)
 
-		basedata.sliggoo_gpsmult = 1.0 + 0.1 * (sliggoo.level)
-		bloon.level_cap = 1000 + (goodra.level)
+		basedata.sliggoo_gpsmult = clamp_value(1.0 + 0.1 * (sliggoo.level))
+		bloon.level_cap = Math.min(bloon.MAX_BLOON_LEVEL, 1000 + (goodra.level))
 
 		for generator in generators
 			if save_data.generators[generator.name]
@@ -100,7 +105,7 @@ load_save_from_local_storage = () ->
 				generator.count = 0
 				generator.level = 1
 			generator.cost = generator.buy_cost_for(generator.count)
-			generator.lvup_cost = generator.base_cost * 100 * Math.pow(1.35, generator.level - 1)
+			generator.lvup_cost = clamp_value(generator.base_cost * 100 * Math.pow(1.35, generator.level - 1))
 
 		recalc()
 
@@ -113,8 +118,8 @@ load_save_from_local_storage = () ->
 		# clamps every tick to MAX_TICK_MS, so this is applied exactly once
 		offline_ms = Math.min(Math.max(0, new Date().getTime() - save_ms), MAX_OFFLINE_MS)
 		if offline_ms > 0 && isFinite(basedata.gps) && isFinite(basedata.expps)
-			basedata.earn(basedata.gps * offline_ms / 1000)
-			bloon.gain_exp(basedata.expps * offline_ms / 1000)
+			basedata.earn(clamp_value(basedata.gps * (offline_ms / 1000)))
+			bloon.gain_exp(clamp_value(basedata.expps * (offline_ms / 1000)))
 
 		last_update_time.setTime(new Date().getTime())
 
@@ -165,18 +170,18 @@ _import_save_0_10 = (str) ->
 	save["save_time"] = save_time
 
 	d02_basedata = data[2].split("|")
-	save["play_time"] = parse_num(d02_basedata[0], -1)
-	save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0))
-	save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0))
-	save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0))
-	save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0))
-	save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0))
-	save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0))
+	save["play_time"] = clamp_finite(d02_basedata[0], -1, MAX_VALUE, -1)
+	save["total_play_time"] = clamp_finite(d02_basedata[1], 0, MAX_VALUE)
+	save["bloons"] = clamp_finite(d02_basedata[2], 0, MAX_VALUE)
+	save["total_bloons"] = clamp_finite(d02_basedata[3], 0, MAX_VALUE)
+	save["total_total_bloons"] = clamp_finite(d02_basedata[4], 0, MAX_VALUE)
+	save["clicks"] = clamp_finite(d02_basedata[5], 0, MAX_VALUE)
+	save["total_clicks"] = clamp_finite(d02_basedata[6], 0, MAX_VALUE)
 
 	d03_bloonstats = data[3].split("|")
-	save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0))
-	save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0))
-	save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0))
+	save["bloon_exp"] = clamp_finite(d03_bloonstats[0], 0, MAX_EXP)
+	save["sliggoo_exp"] = clamp_finite(d03_bloonstats[1], 0, MAX_EXP)
+	save["goodra_exp"] = clamp_finite(d03_bloonstats[2], 0, MAX_EXP)
 
 	generator_names = [
 		"cursor",
@@ -278,18 +283,18 @@ _import_save_0_05 = (str) ->
 	save["save_time"] = save_time
 
 	d02_basedata = data[2].split("|")
-	save["play_time"] = parse_num(d02_basedata[0], -1)
-	save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0))
-	save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0))
-	save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0))
-	save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0))
-	save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0))
-	save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0))
+	save["play_time"] = clamp_finite(d02_basedata[0], -1, MAX_VALUE, -1)
+	save["total_play_time"] = clamp_finite(d02_basedata[1], 0, MAX_VALUE)
+	save["bloons"] = clamp_finite(d02_basedata[2], 0, MAX_VALUE)
+	save["total_bloons"] = clamp_finite(d02_basedata[3], 0, MAX_VALUE)
+	save["total_total_bloons"] = clamp_finite(d02_basedata[4], 0, MAX_VALUE)
+	save["clicks"] = clamp_finite(d02_basedata[5], 0, MAX_VALUE)
+	save["total_clicks"] = clamp_finite(d02_basedata[6], 0, MAX_VALUE)
 
 	d03_bloonstats = data[3].split("|")
-	save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0))
-	save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0))
-	save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0))
+	save["bloon_exp"] = clamp_finite(d03_bloonstats[0], 0, MAX_EXP)
+	save["sliggoo_exp"] = clamp_finite(d03_bloonstats[1], 0, MAX_EXP)
+	save["goodra_exp"] = clamp_finite(d03_bloonstats[2], 0, MAX_EXP)
 
 	generator_names = [
 		"cursor",

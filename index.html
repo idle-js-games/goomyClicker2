@@ -21,7 +21,7 @@
 	<script src="lib/touche.min.js" integrity="sha384-qIsVh0SKEdxLCVbXD3h9Guq5qhjdK2645vkQFKI+IHtUbH3oo9agfazWCHZRb6Hb" crossorigin="anonymous"></script>
 	<!-- game libraries -->
 	<script src="lib/sprintf.min.js" integrity="sha384-ozf6s6gpPj8/ctGqYyuo6ncxpQlqPONhIYy8KgwlEMTJDrX/sDLDmF7qUwSPQvZf" crossorigin="anonymous"></script>
-	<script src="lib/reprnum.js"></script>
+	<script src="lib/reprnum.js" integrity="sha384-HRNfo+r4QTwsO96XXOk/UTfy3tk6kO6AYxQIQ3kAwhrYz4PLebQJYM1eIMUlnqaS" crossorigin="anonymous"></script>
 	<script src="lib/abcdef.js" integrity="sha384-FYeDeqFj278cuE3+WRCC174ahQZvQ1Lpw6T/JKUPE+fGrkAeqduncD5b/0T1lq7a" crossorigin="anonymous"></script>
 	<script src="lib/funcs.js"></script>
 	<!-- local game code -->
@@ -46,7 +46,8 @@
 			<div id="mobpane">
 				<div id="mob_infopane">
 					<span class="blooncount" id="mob_blooncount"><span class="lang_bloon_counter_pre"></span><span class="bloons" id="mob_bloons">0</span><span class="lang_bloon_counter_post"> Bloons</span></span><br />
-					<span class="lang_gps_counter_pre"></span><span class="gps" id="mob_gps">0.0</span><span class="lang_gps_counter_post"> Bloons per second</span>
+					<span class="lang_gps_counter_pre"></span><span class="gps" id="mob_gps">0.0</span><span class="lang_gps_counter_post"> Bloons per second</span><br />
+					<span class="lang_gpc_counter_pre"></span><span class="gpc" id="mob_gpc">0.0</span><span class="lang_gpc_counter_post"> Bloons per click</span>
 				</div>
 				<div id="mob_levelpane">
 					<span class="lang_level_counter">Level </span><span class="level" id="mob_level">1</span>
@@ -58,7 +59,8 @@
 				<p style="margin:0 0 6px;color:#b7f5ff;">Tap the Bloon. Buy monkeys. Scale your profits.</p>
 				<div id="infopane">
 					<span class="blooncount" id="blooncount"><span class="lang_bloon_counter_pre"></span><span class="bloons" id="bloons">0</span><span class="lang_bloon_counter_post"> Bloons</span></span><br />
-					<span class="lang_gps_counter_pre"></span><span class="gps" id="gps">0.0</span><span class="lang_gps_counter_post"> Bloons per second</span>
+					<span class="lang_gps_counter_pre"></span><span class="gps" id="gps">0.0</span><span class="lang_gps_counter_post"> Bloons per second</span><br />
+					<span class="lang_gpc_counter_pre"></span><span class="gpc" id="gpc">0.0</span><span class="lang_gpc_counter_post"> Bloons per click</span>
 				</div>
 				<div id="bloon_container">
 					<img id="great_bloon" src="img/great_bloon.png" />
@@ -128,7 +130,7 @@
 			<div id="prestige_tab" class="menu-panel">
 				<div id="prestige_panel">
 					<h2>Prestige</h2>
-					<p>Reach the Bloons-earned threshold to prestige. Each prestige resets your Bloons, monkeys and upgrades for a permanent <b>x2 global earnings and battle damage</b> boost. Battle progress is kept. 15 tiers: Bronze I-V, Silver I-V, Gold I-V.</p>
+					<p>Reach the Bloons-earned threshold to prestige. Each prestige resets your Bloons, monkeys and upgrades for a permanent <b>x2 global earnings</b> boost. Battle progress is kept. 15 tiers: Bronze I-V, Silver I-V, Gold I-V.</p>
 					<div>Current rank: <b id="prestige_rank_name">None</b></div>
 					<div>Global boost: <b id="prestige_mult_value">x1</b></div>
 					<div>Bloons earned (this run): <b id="prestige_earned">0</b></div>
@@ -194,6 +196,8 @@
 
 				<tr><td class="lang_stats_bloons">Bloons</td><td style="text-align: right;"><b id="stats_bloons">0</b></td></tr>
 				<tr><td class="lang_stats_total_bloons">Total Bloons</td><td style="text-align: right;"><b id="stats_total_bloons">0</b></td></tr>
+				<tr><td class="lang_stats_gps">Bloons per second</td><td style="text-align: right;"><b id="stats_gps">0</b></td></tr>
+				<tr><td class="lang_stats_gpc">Bloons per click</td><td style="text-align: right;"><b id="stats_gpc">0</b></td></tr>
 
 				<tr style="height: 8px;"></tr>
 
@@ -237,7 +241,7 @@
 	</div>
 
 	<div id="about">
-		<h2 style="font-weight: normal;">Bloons Clicker&trade; <span class="version">v1.3.2 (release)</span></h2>
+		        <h2 style="font-weight: normal;">Bloons Clicker&trade; <span class="version">v1.3.3 (release)</span></h2>
 		<p>A modernized idle clicker vibe with classic Bloons energy.</p>
 		<hr />
 		<p>

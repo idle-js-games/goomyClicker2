@@ -1,3 +1,17 @@
+# Hard ceiling for every number in the simulation. Finite + finite arithmetic
+# can still overflow a double, and an Infinity/NaN that reaches an accumulator is
+# sticky: `Infinity < Infinity` is false (so an infinite balance would make every
+# purchase free), the HUD prints "Infinity", and the poisoned value is re-saved
+# every 10 s. Anything above MAX_VALUE is pinned to it instead.
+MAX_VALUE = 1e308
+
+clamp_value = (n) ->
+	return MAX_VALUE if n == Infinity
+	return -MAX_VALUE if n == -Infinity
+	return 0 unless isFinite(n)
+	if n > MAX_VALUE then MAX_VALUE else if n < -MAX_VALUE then -MAX_VALUE else n
+
+
 basedata =
 
 	version: "0.354 (pre-alpha)",
@@ -17,11 +31,14 @@ basedata =
 	gps: 0,
 	expps: 0,
 	gpc: 1,
+	bpc: 1,
+	damage_gps: 0,
+	damage_gpc: 1,
 
 	sliggoo_gpsmult: 1.0,
 
 	prestige_count: 0,   # number of prestiges performed (max 15)
-	prestige_mult: 1.0,  # global earnings/battle damage multiplier: 2 ^ prestige_count
+	prestige_mult: 1.0,  # global earnings multiplier: 2 ^ prestige_count
 
 	prestige_threshold: (n) ->
 		n = @prestige_count + 1 unless n?
@@ -56,7 +73,7 @@ basedata =
 	total_bloons_comp: 0,
 	total_total_bloons_comp: 0,
 
-	balance: -> @bloons + @bloons_comp
+	balance: -> clamp_value(@bloons + @bloons_comp)
 
 	earn: (n) ->
 		@add_precise("bloons", n)
@@ -68,14 +85,14 @@ basedata =
 		@add_precise("bloons", -n)
 
 	add_precise: (key, n) ->
-		return unless isFinite(n) and isFinite(@[key])
-		t = @[key] + n
+		return unless isFinite(@[key])
+		n = clamp_value(n)
+		t = clamp_value(@[key] + n)
 		comp_key = key + "_comp"
 		if Math.abs(@[key]) >= Math.abs(n)
-			@[comp_key] += (@[key] - t) + n
+			@[comp_key] = clamp_value(@[comp_key] + ((@[key] - t) + n))
 		else
-			@[comp_key] += (n - t) + @[key]
-		@[comp_key] = 0 unless isFinite(@[comp_key])
+			@[comp_key] = clamp_value(@[comp_key] + ((n - t) + @[key]))
 		@[key] = t
 
 	click: ->
@@ -95,10 +112,10 @@ basedata =
 
 		# While a boss fight is active, BpS production is halted and instead
 		# channeled into damaging the boss (see battle.update).
-		gain = if battle.active then 0 else @gps * ms / 1000
+		gain = if battle.active then 0 else clamp_value(@gps * (ms / 1000))
 		@earn(gain)
 
-		exp_gain = @expps * ms / 1000
+		exp_gain = clamp_value(@expps * (ms / 1000))
 		bloon.gain_exp (exp_gain)
 
 		if @game_started
@@ -108,13 +125,13 @@ basedata =
 	reset: (keep_battle = false) ->
 		# calculate prestige bonuses (grants are capped so the legacy
 		# level-up loops cannot hang on astronomic totals)
-		sliggoo.gain_exp Math.min(@total_bloons / 1e12, 1e12)
-		goodra.gain_exp Math.min(bloon.exp / 1e4, 1e6)
+		sliggoo.gain_exp Math.min(clamp_value(@total_bloons / 1e12), 1e12)
+		goodra.gain_exp Math.min(clamp_value(bloon.exp / 1e4), 1e6)
 
 		# Sliggoo gives a GPS multiplier boost.
-		@sliggoo_gpsmult = 1.0 + 0.1 * (sliggoo.level)
-		# Goodra raises the level cap.
-		bloon.level_cap = 1000 + (goodra.level)
+		@sliggoo_gpsmult = clamp_value(1.0 + 0.1 * (sliggoo.level))
+		# Goodra raises the level cap, but the Bloon hard cap always wins.
+		bloon.level_cap = Math.min(MAX_BLOON_LEVEL, 1000 + (goodra.level))
 
 		@bloons = 0
 		@bloons_comp = 0

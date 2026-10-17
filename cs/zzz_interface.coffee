@@ -9,3 +9,11 @@
 @update_language = update_language
 
 @bitfield_to_sstr = bitfield_to_sstr
+
+# progression + math internals, exposed for debugging and tests
+@bloon = bloon
+@battle = battle
+@sliggoo = sliggoo
+@goodra = goodra
+@recalc = recalc
+@clamp_value = clamp_value

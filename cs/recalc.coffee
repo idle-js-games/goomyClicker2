@@ -15,28 +15,36 @@ recalc_gps = ->
 	if items["ball99"].bought
 		gens["monkey"].base_gps += 100.0
 
+	# global production multipliers shared by every building
+	global_mult = clamp_value(basedata.sliggoo_gpsmult * basedata.raindance_mult * battle.bps_mult)
+
 	for gen in generators
 		# reset the variables for calculation
-		gen.level_mult = Math.pow(1.3, gen.level - 1)
-		gen.gps = gen.base_gps * gen.level_mult
+		gen.level_mult = clamp_value(Math.pow(1.3, gen.level - 1))
+		gen.gps = clamp_value(gen.base_gps * gen.level_mult)
 
 	# tiered generator upgrades
 	for item in itemlist
 		if item.bought && item.generator_name && gens[item.generator_name]
-			gens[item.generator_name].gps *= item.bps_mult
+			gens[item.generator_name].gps = clamp_value(gens[item.generator_name].gps * item.bps_mult)
 
-	basedata.expps = 0.2 * gens["cursor"].count
+	# the per-building BPS shown in tooltips must carry every multiplier,
+	# prestige included, so it agrees with the total the HUD reports
+	for gen in generators
+		gen.gps = clamp_value(gen.gps * global_mult * basedata.prestige_mult)
+
+	# each cursor level adds +0.1 EXP/s per cursor on top of its 0.2 base
+	basedata.expps = clamp_value((0.2 + 0.1 * (gens["cursor"].level - 1)) * gens["cursor"].count)
 
 	new_gps = 0
 	for gen in generators
 		new_gps += gen.count * gen.gps
 
-	new_gps *= basedata.sliggoo_gpsmult
-	new_gps *= basedata.prestige_mult
-	new_gps *= basedata.raindance_mult
-	new_gps *= battle.bps_mult
-
-	basedata.gps = new_gps
+	basedata.gps = clamp_value(new_gps)
+	# prestige is an earnings multiplier only; boss fights channel the
+	# un-prestiged BPS into damage, so prestige cannot overboost the fight.
+	# prestige_mult is a power of two, so the division is exact.
+	basedata.damage_gps = clamp_value(new_gps / basedata.prestige_mult)
 
 
 recalc_gpc = ->
@@ -58,9 +66,11 @@ recalc_gpc = ->
 			new_gpc += gen.count * (bloon.level - 80) * 10.0
 
 	new_gpc *= Math.pow(1.1, gens["cursor"].level - 1)
-	new_gpc *= basedata.prestige_mult
 	new_gpc *= basedata.raindance_mult
 	new_gpc *= basedata.frenzy_clickmult
 	new_gpc *= battle.tap_mult
 
-	basedata.gpc = new_gpc
+	basedata.bpc = clamp_value(new_gpc)
+	basedata.gpc = clamp_value(new_gpc * basedata.prestige_mult)
+	# same rule as BPS: boss taps use the un-prestiged click value
+	basedata.damage_gpc = basedata.bpc

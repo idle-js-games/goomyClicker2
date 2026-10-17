@@ -70,10 +70,10 @@ init_input = ->
 	$("#prestige_now").click ->
 		unless basedata.can_prestige()
 			return false
-		if window.confirm && !window.confirm("Prestige now? Your Bloons, monkeys and upgrades will reset for a permanent x2 global earnings and battle damage boost.")
+		if window.confirm && !window.confirm("Prestige now? Your Bloons, monkeys and upgrades will reset for a permanent x2 global earnings multiplier.")
 			return false
 		if basedata.prestige()
-			$("#prestige_status").html("Prestige complete! Global earnings and battle damage are now x#{reprnum(basedata.prestige_mult, "short")}.")
+			$("#prestige_status").html("Prestige complete! Global earnings are now x#{reprnum(basedata.prestige_mult, "short")}.")
 
 	# settings tab
 	$("#settings_audio").change ->

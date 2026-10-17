@@ -15,7 +15,7 @@
                       0.10%
 
   */
-  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_ETERNAL_STAGE, MAX_GENERATOR_COUNT, MAX_GENERATOR_LEVEL, MAX_OFFLINE_MS, MAX_TICK_MS, PlusMarker, SAVE_FORMAT_VERSION, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clamp_finite, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, refresh_scrollers, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_conflict, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
+  var ETERNAL_BLOON_FALLBACK, ETERNAL_BLOON_IMAGE, Generator, Item, MAX_ETERNAL_STAGE, MAX_EXP, MAX_GENERATOR_COUNT, MAX_GENERATOR_LEVEL, MAX_OFFLINE_MS, MAX_TICK_MS, MAX_VALUE, PlusMarker, SAVE_FORMAT_VERSION, _import_save_0_05, _import_save_0_10, animate_plus_markers, asset_url, audio, audio_asset, ball01, ball02, ball99, basedata, battle, bitfield_to_sstr, bitmap, bloon, bloon_asset, bloon_image, bombshooter, boomerangthrower, changelog_entries, clamp_finite, clamp_value, clear_hud_cache, click1, create_item_tooltip_content, cursor, def, destroy_qtip, ensure_item_dom, export_save, gcm1, gcm2, gcm3, gcm4, gcm5, gen, generator_image_url, generator_upgrade_defs, generators, gens, gluegunner, goodra, hexstr, hud_cache, icetower, import_save, init_cooldown_time, init_input, init_item_qtip, item_ids, itemlist, items, j, k, l, last_update_time, len1, len2, len3, load_save_from_local_storage, monkey, monkey_asset, monkeyace, monkeyapprentice, monkeybuccaneer, monkeyengineer, monkeysub, ngens, ninjamonkey, number_format_load_codes, number_format_save_codes, parse_int, parse_num, play_sound, plus_marker_anims, plus_marker_distance, plus_marker_id, plus_marker_origradius, plus_markers, prestige_rank_names, recalc, recalc_gpc, recalc_gps, refresh_scrollers, regenerate_tooltips, render_changelog, render_prestige_tab, resize_timer, sanitize_number_format, save_conflict, save_to_local_storage, set_hud, set_hud_attr, set_hud_visible, set_image_with_fallback, settings, shiny_bloon, sliggoo, snipermonkey, spikefactory, sstr_to_bitfield, start_if_loaded, startup, supermonkey, tackshooter, update, updateF, update_all_numbers, update_language, update_numbers, update_prestige_display, youngsterpocalypse,
     indexOf = [].indexOf,
     hasProp = {}.hasOwnProperty;
 
@@ -220,6 +220,32 @@
 
   this.play_sound = play_sound;
 
+  // Hard ceiling for every number in the simulation. Finite + finite arithmetic
+  // can still overflow a double, and an Infinity/NaN that reaches an accumulator is
+  // sticky: `Infinity < Infinity` is false (so an infinite balance would make every
+  // purchase free), the HUD prints "Infinity", and the poisoned value is re-saved
+  // every 10 s. Anything above MAX_VALUE is pinned to it instead.
+  MAX_VALUE = 1e308;
+
+  clamp_value = function(n) {
+    if (n === 2e308) {
+      return MAX_VALUE;
+    }
+    if (n === -2e308) {
+      return -MAX_VALUE;
+    }
+    if (!isFinite(n)) {
+      return 0;
+    }
+    if (n > MAX_VALUE) {
+      return MAX_VALUE;
+    } else if (n < -MAX_VALUE) {
+      return -MAX_VALUE;
+    } else {
+      return n;
+    }
+  };
+
   basedata = {
     version: "0.354 (pre-alpha)",
     game_started: false,
@@ -232,9 +258,12 @@
     gps: 0,
     expps: 0,
     gpc: 1,
+    bpc: 1,
+    damage_gps: 0,
+    damage_gpc: 1,
     sliggoo_gpsmult: 1.0,
     prestige_count: 0, // number of prestiges performed (max 15)
-    prestige_mult: 1.0, // global earnings/battle damage multiplier: 2 ^ prestige_count
+    prestige_mult: 1.0, // global earnings multiplier: 2 ^ prestige_count
     prestige_threshold: function(n) {
       if (n == null) {
         n = this.prestige_count + 1;
@@ -270,7 +299,7 @@
     total_bloons_comp: 0,
     total_total_bloons_comp: 0,
     balance: function() {
-      return this.bloons + this.bloons_comp;
+      return clamp_value(this.bloons + this.bloons_comp);
     },
     earn: function(n) {
       this.add_precise("bloons", n);
@@ -283,18 +312,16 @@
     },
     add_precise: function(key, n) {
       var comp_key, t;
-      if (!(isFinite(n) && isFinite(this[key]))) {
+      if (!isFinite(this[key])) {
         return;
       }
-      t = this[key] + n;
+      n = clamp_value(n);
+      t = clamp_value(this[key] + n);
       comp_key = key + "_comp";
       if (Math.abs(this[key]) >= Math.abs(n)) {
-        this[comp_key] += (this[key] - t) + n;
+        this[comp_key] = clamp_value(this[comp_key] + ((this[key] - t) + n));
       } else {
-        this[comp_key] += (n - t) + this[key];
-      }
-      if (!isFinite(this[comp_key])) {
-        this[comp_key] = 0;
+        this[comp_key] = clamp_value(this[comp_key] + ((n - t) + this[key]));
       }
       return this[key] = t;
     },
@@ -314,9 +341,9 @@
       var exp_gain, gain;
       // While a boss fight is active, BpS production is halted and instead
       // channeled into damaging the boss (see battle.update).
-      gain = battle.active ? 0 : this.gps * ms / 1000;
+      gain = battle.active ? 0 : clamp_value(this.gps * (ms / 1000));
       this.earn(gain);
-      exp_gain = this.expps * ms / 1000;
+      exp_gain = clamp_value(this.expps * (ms / 1000));
       bloon.gain_exp(exp_gain);
       if (this.game_started) {
         this.play_time += ms;
@@ -327,12 +354,12 @@
       var generator, item, j, len1, name;
       // calculate prestige bonuses (grants are capped so the legacy
       // level-up loops cannot hang on astronomic totals)
-      sliggoo.gain_exp(Math.min(this.total_bloons / 1e12, 1e12));
-      goodra.gain_exp(Math.min(bloon.exp / 1e4, 1e6));
+      sliggoo.gain_exp(Math.min(clamp_value(this.total_bloons / 1e12), 1e12));
+      goodra.gain_exp(Math.min(clamp_value(bloon.exp / 1e4), 1e6));
       // Sliggoo gives a GPS multiplier boost.
-      this.sliggoo_gpsmult = 1.0 + 0.1 * sliggoo.level;
-      // Goodra raises the level cap.
-      bloon.level_cap = 1000 + goodra.level;
+      this.sliggoo_gpsmult = clamp_value(1.0 + 0.1 * sliggoo.level);
+      // Goodra raises the level cap, but the Bloon hard cap always wins.
+      bloon.level_cap = Math.min(MAX_BLOON_LEVEL, 1000 + goodra.level);
       this.bloons = 0;
       this.bloons_comp = 0;
       this.total_bloons = 0;
@@ -585,7 +612,7 @@
         stage = this.eternal_stage + 1;
         return {
           name: `Eternal Bloon (Tier ${stage})`,
-          hp: this.eternal_base_hp * Math.pow(this.eternal_hp_scale, this.eternal_stage),
+          hp: clamp_value(this.eternal_base_hp * Math.pow(this.eternal_hp_scale, this.eternal_stage)),
           tap_reward: this.eternal_tap_reward + this.eternal_stage * 0.01,
           bps_reward: this.eternal_bps_reward + this.eternal_stage * 0.005,
           image: [ETERNAL_BLOON_IMAGE, ETERNAL_BLOON_FALLBACK],
@@ -650,7 +677,7 @@
         return;
       }
       play_sound("tap");
-      return this.damage(Math.max(1, basedata.gpc));
+      return this.damage(Math.max(1, basedata.damage_gpc));
     },
     damage: function(n, render_after = true) {
       if (!this.active) {
@@ -733,7 +760,7 @@
       if (this.timer <= 0) {
         return this.lose();
       }
-      passive_damage = basedata.gps * ms / 1000;
+      passive_damage = basedata.damage_gps * ms / 1000;
       if (passive_damage > 0) {
         this.damage(passive_damage, false);
       }
@@ -809,7 +836,16 @@
     next_lv_exp: 100,
     lv_total_exp: 0,
     level_cap: 100,
+    // Hard ceiling for the Bloon's own level. `level_cap` can be raised by
+    // Goodra, so clamp against this absolute bound wherever a cap is applied.
+    // Unbounded, the Bloon's `next_lv_exp = level * level * 100` curve overflows
+    // a double (level^2 > 1.79e308 at level ~1.34e153), which would stop level-ups
+    // entirely and freeze the tick loop.
+    MAX_BLOON_LEVEL: 999,
     level_up: function() {
+      if (this.level >= this.MAX_BLOON_LEVEL) {
+        return;
+      }
       this.level += 1;
       this.lv_total_exp += this.next_lv_exp;
       this.next_lv_exp = this.level * this.level * 100;
@@ -817,14 +853,26 @@
       return update_all_numbers();
     },
     gain_exp: function(exp) {
-      var results;
+      var cap, guard, results;
       this.exp += exp;
-      if (this.level >= this.level_cap && this.exp > this.lv_total_exp) {
-        this.exp = this.lv_total_exp;
+      cap = Math.min(this.level_cap, this.MAX_BLOON_LEVEL);
+      if (this.level >= cap) {
+        if (this.exp > this.lv_total_exp) {
+          this.exp = this.lv_total_exp;
+        }
+        return;
       }
+      // level_up() rewrites the HUD, so bound the loop: a huge exp grant must
+      // never spin the main thread. 100k levels is far past any reachable cap.
+      guard = 0;
       results = [];
-      while (this.exp >= this.lv_total_exp + this.next_lv_exp && this.level < this.level_cap) {
-        results.push(this.level_up());
+      while (this.exp >= this.lv_total_exp + this.next_lv_exp && this.level < cap) {
+        this.level_up();
+        if ((guard += 1) >= 100000) {
+          break;
+        } else {
+          results.push(void 0);
+        }
       }
       return results;
     }
@@ -896,6 +944,22 @@
   // Entries are traced back from this repository's git history (oldest at the
   // bottom); keep adding new entries at the top.
   changelog_entries = [
+    {
+      date: "2026-10-15",
+      version: "v1.3.3",
+      title: "Prestige, upgrade caps and numeric hardening",
+      changes: ["All game numbers are now held below a hard ceiling (1e308). A value that could reach Infinity or NaN is clamped instead, so one bad number can no longer make every purchase free or silently stop all production.",
+    "The Bloon's level is capped at 999. Goodra still raises the cap, but never past that, and the level-up loop is bounded so a huge EXP value cannot freeze the game.",
+    "Generator levels are capped at 999,999 on every path, not just when loading: level-ups and purchases enforce the same limit, and a level or count can no longer be earned past it and then silently dropped on the next load.",
+    "Bloon, Sliggoo and Goodra EXP values are validated on import like every other save field, so a hand-edited save can no longer hang the game.",
+    "Offline progress is calculated without overflowing first, so a lategame save no longer loses its idle earnings.",
+    "Generator levels are no longer capped at 300 when loading a save; the cap is now 999,999 so a lategame tower keeps its real level instead of silently snapping back.",
+    "Prestige is an earnings multiplier only. It no longer feeds the BPS that is channeled into boss-fight damage, so a prestige can no longer overboost fights; boss passive damage and taps use the un-prestiged values.",
+    "The per-building BPS in tooltips now carries every global multiplier, prestige included, so it matches the total the HUD reports.",
+    "Each Cursor level adds +0.1 EXP/s per Cursor on top of the 0.2 base, so leveling Cursors speeds up Bloon EXP gain.",
+    "Number formatting gains ten more illions (unquadragintillion through quinquagintillion) and the missing spaces are restored on untrigintillion and above.",
+    "The autosave-conflict notice now says plainly that autosaving is off in this tab and how to recover, instead of just telling you to reload."]
+    },
     {
       date: "2026-10-15",
       version: "v1.3.2",
@@ -1043,160 +1107,179 @@
 
   generators = [];
 
-  Generator = class Generator {
-    constructor(name) {
-      this.name = name;
-      this.display_name = name;
-      this.description = "";
-      this.image = name;
-      this.legacy_names = [];
-      this.base_gps = 0.0;
-      this.premult_gps = 0.0;
-      this.gps = 0.0;
-      this.level = 1;
-      this.level_mult = 1.0;
-      this.base_cost = 15;
-      this.cost = this.base_cost;
-      this.count = 0;
-      // Purchase cost curve. Each building/monkey can set its own balance
-      // with set_cost(). When nothing is customised the fallback formula is
-      // a 15% compound per owned unit, i.e.
-      //   cost(n) = base_cost * (1 + cost_rate) ^ n
-      this.cost_rate = 0.15;
-      this.cost_fn = null;
-      this.lvup_cost = this.base_cost * 100;
-      gens[name] = this;
-      generators.push(this);
-    }
+  Generator = (function() {
+    class Generator {
+      constructor(name) {
+        this.name = name;
+        this.display_name = name;
+        this.description = "";
+        this.image = name;
+        this.legacy_names = [];
+        this.base_gps = 0.0;
+        this.premult_gps = 0.0;
+        this.gps = 0.0;
+        this.level = 1;
+        this.level_mult = 1.0;
+        this.base_cost = 15;
+        this.cost = this.base_cost;
+        this.count = 0;
+        // Purchase cost curve. Each building/monkey can set its own balance
+        // with set_cost(). When nothing is customised the fallback formula is
+        // a 15% compound per owned unit, i.e.
+        //   cost(n) = base_cost * (1 + cost_rate) ^ n
+        this.cost_rate = 0.15;
+        this.cost_fn = null;
+        this.lvup_cost = this.base_cost * 100;
+        gens[name] = this;
+        generators.push(this);
+      }
 
-    buy(n) {
-      var bought, i, j, ref;
-      bought = 0;
-      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
-        if (basedata.balance() < this.cost) {
-          recalc();
-          return bought;
+      buy(n) {
+        var bought, i, j, ref;
+        bought = 0;
+        for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+          if (this.count >= Generator.MAX_COUNT) {
+            break;
+          }
+          if (basedata.balance() < this.cost) {
+            recalc();
+            return bought;
+          }
+          basedata.spend(this.cost);
+          this.count += 1;
+          this.cost = this.buy_cost_for(this.count);
+          bought += 1;
         }
-        basedata.spend(this.cost);
-        this.count += 1;
+        recalc();
+        if (bought > 0) {
+          play_sound("buy");
+        }
+        return bought;
+      }
+
+      sell(n) {
+        var i, j, ref, sold;
+        sold = 0;
+        for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+          if (this.count <= 0) {
+            recalc();
+            return sold;
+          }
+          this.count -= 1;
+          this.cost = this.buy_cost_for(this.count);
+          basedata.earn(this.cost * 0.25);
+          sold += 1;
+        }
+        recalc();
+        if (sold > 0) {
+          play_sound("buy");
+        }
+        return sold;
+      }
+
+      // total cost of buying n more units from the current count
+      bulk_cost(n) {
+        var i, j, ref, total;
+        total = 0;
+        for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+          total += this.buy_cost_for(this.count + i);
+        }
+        return total;
+      }
+
+      // total refund for selling n units (25% of each sold unit's price)
+      bulk_sell_value(n) {
+        var i, j, ref, total;
+        total = 0;
+        for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
+          if (this.count - i <= 0) {
+            break;
+          }
+          total += Math.max(0, Math.floor(this.buy_cost_for(this.count - 1 - i) * 0.25));
+        }
+        return total;
+      }
+
+      // Purchase cost of the next unit (n = owned count). Fallbacks guarantee a
+      // sane finite cost even with broken custom values.
+      buy_cost_for(n) {
+        var base, cost;
+        if (!isFinite(n)) {
+          n = 0;
+        }
+        n = Math.max(0, Math.floor(n));
+        base = isFinite(this.base_cost) && this.base_cost > 0 ? this.base_cost : 15;
+        cost = this.cost_fn ? this.cost_fn.call(this, n) : 0/0;
+        if (!(isFinite(cost) && cost > 0)) {
+          cost = base * Math.pow(1 + this.cost_rate, n);
+        }
+        if (!(isFinite(cost) && cost > 0)) {
+          cost = base * Math.pow(1.15, n);
+        }
+        return clamp_value(Math.max(1, Math.round(cost)));
+      }
+
+      // Per-building/monkey purchase cost balance. All fields optional:
+      //   rate:    compound growth per owned unit as a fraction (default 0.15)
+      //   cost_f:  full custom formula, (n) -> cost, overriding the above
+      set_cost(options = {}) {
+        if (isFinite(options.rate) && options.rate >= 0) {
+          this.cost_rate = options.rate;
+        }
+        if (typeof options.cost_f === "function") {
+          this.cost_fn = options.cost_f;
+        }
         this.cost = this.buy_cost_for(this.count);
-        bought += 1;
+        return this.cost;
       }
-      recalc();
-      if (bought > 0) {
-        play_sound("buy");
-      }
-      return bought;
-    }
 
-    sell(n) {
-      var i, j, ref, sold;
-      sold = 0;
-      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
-        if (this.count <= 0) {
-          recalc();
-          return sold;
+      levelup() {
+        if (this.level >= Generator.MAX_LEVEL) {
+          return false;
         }
-        this.count -= 1;
-        this.cost = this.buy_cost_for(this.count);
-        basedata.earn(this.cost * 0.25);
-        sold += 1;
-      }
-      recalc();
-      if (sold > 0) {
-        play_sound("buy");
-      }
-      return sold;
-    }
-
-    // total cost of buying n more units from the current count
-    bulk_cost(n) {
-      var i, j, ref, total;
-      total = 0;
-      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
-        total += this.buy_cost_for(this.count + i);
-      }
-      return total;
-    }
-
-    // total refund for selling n units (25% of each sold unit's price)
-    bulk_sell_value(n) {
-      var i, j, ref, total;
-      total = 0;
-      for (i = j = 0, ref = n; (0 <= ref ? j < ref : j > ref); i = 0 <= ref ? ++j : --j) {
-        if (this.count - i <= 0) {
-          break;
+        if (basedata.balance() < this.lvup_cost) {
+          return false;
         }
-        total += Math.max(0, Math.floor(this.buy_cost_for(this.count - 1 - i) * 0.25));
+        basedata.spend(this.lvup_cost);
+        this.level += 1;
+        this.lvup_cost = clamp_value(this.base_cost * 100 * Math.pow(1.35, this.level - 1));
+        recalc();
+        play_sound("upgrade");
+        return true;
       }
-      return total;
-    }
 
-    // Purchase cost of the next unit (n = owned count). Fallbacks guarantee a
-    // sane finite cost even with broken custom values.
-    buy_cost_for(n) {
-      var base, cost;
-      if (!isFinite(n)) {
-        n = 0;
+      set_base_cost(cost) {
+        this.base_cost = cost;
+        return this.lvup_cost = this.base_cost * 100;
       }
-      n = Math.max(0, Math.floor(n));
-      base = isFinite(this.base_cost) && this.base_cost > 0 ? this.base_cost : 15;
-      cost = this.cost_fn ? this.cost_fn.call(this, n) : 0/0;
-      if (!(isFinite(cost) && cost > 0)) {
-        cost = base * Math.pow(1 + this.cost_rate, n);
-      }
-      if (!(isFinite(cost) && cost > 0)) {
-        cost = base * Math.pow(1.15, n);
-      }
-      return Math.max(1, Math.round(cost));
-    }
 
-    // Per-building/monkey purchase cost balance. All fields optional:
-    //   rate:    compound growth per owned unit as a fraction (default 0.15)
-    //   cost_f:  full custom formula, (n) -> cost, overriding the above
-    set_cost(options = {}) {
-      if (isFinite(options.rate) && options.rate >= 0) {
-        this.cost_rate = options.rate;
+      set_theme(display_name, description, image, legacy_names = []) {
+        var j, legacy_name, len1, results;
+        this.display_name = display_name;
+        this.description = description;
+        this.image = image;
+        this.legacy_names = legacy_names;
+        results = [];
+        for (j = 0, len1 = legacy_names.length; j < len1; j++) {
+          legacy_name = legacy_names[j];
+          results.push(gens[legacy_name] = this);
+        }
+        return results;
       }
-      if (typeof options.cost_f === "function") {
-        this.cost_fn = options.cost_f;
-      }
-      this.cost = this.buy_cost_for(this.count);
-      return this.cost;
-    }
 
-    levelup() {
-      if (basedata.balance() < this.lvup_cost) {
-        return false;
-      }
-      basedata.spend(this.lvup_cost);
-      this.level += 1;
-      this.lvup_cost = this.base_cost * 100 * Math.pow(1.35, this.level - 1);
-      recalc();
-      play_sound("upgrade");
-      return true;
-    }
+    };
 
-    set_base_cost(cost) {
-      this.base_cost = cost;
-      return this.lvup_cost = this.base_cost * 100;
-    }
+    // Hard bounds for level and count. Beyond these the cost and production
+    // formulas overflow a double (1.3^(L-1) is Infinity past L=2706, 1.15^n past
+    // n=5078), which corrupts the economy and makes the save unloadable, so both
+    // the load path and the live level-up/purchase path clamp against them.
+    Generator.MAX_LEVEL = 999999;
 
-    set_theme(display_name, description, image, legacy_names = []) {
-      var j, legacy_name, len1, results;
-      this.display_name = display_name;
-      this.description = description;
-      this.image = image;
-      this.legacy_names = legacy_names;
-      results = [];
-      for (j = 0, len1 = legacy_names.length; j < len1; j++) {
-        legacy_name = legacy_names[j];
-        results.push(gens[legacy_name] = this);
-      }
-      return results;
-    }
+    Generator.MAX_COUNT = 1e21;
 
-  };
+    return Generator;
+
+  }).call(this);
 
   // actual generator data
   cursor = new Generator("cursor");
@@ -1463,11 +1546,11 @@
       if (!basedata.can_prestige()) {
         return false;
       }
-      if (window.confirm && !window.confirm("Prestige now? Your Bloons, monkeys and upgrades will reset for a permanent x2 global earnings and battle damage boost.")) {
+      if (window.confirm && !window.confirm("Prestige now? Your Bloons, monkeys and upgrades will reset for a permanent x2 global earnings multiplier.")) {
         return false;
       }
       if (basedata.prestige()) {
-        return $("#prestige_status").html(`Prestige complete! Global earnings and battle damage are now x${reprnum(basedata.prestige_mult, "short")}.`);
+        return $("#prestige_status").html(`Prestige complete! Global earnings are now x${reprnum(basedata.prestige_mult, "short")}.`);
       }
     });
     // settings tab
@@ -1587,11 +1670,17 @@
   // offline progress granted when loading a save is capped at one day
   MAX_OFFLINE_MS = 24 * 60 * 60 * 1000;
 
-  MAX_GENERATOR_COUNT = 1e21;
+  // mirror the bounds the Generator class enforces on the live path so the
+  // import path cannot admit a value the rest of the game would reject.
+  MAX_GENERATOR_COUNT = Generator.MAX_COUNT;
 
-  MAX_GENERATOR_LEVEL = 300;
+  MAX_GENERATOR_LEVEL = Generator.MAX_LEVEL;
 
   MAX_ETERNAL_STAGE = 999;
+
+  // Bloon/sliggoo/goodra exp ceilings. Bloon exp feeds a loop that runs a DOM
+  // rewrite per level, so an imported Infinity there would freeze the tab.
+  MAX_EXP = 1e15;
 
   number_format_load_codes = {
     "0": "full",
@@ -1658,8 +1747,8 @@
       goodra.gain_exp(save_data["goodra_exp"]);
       basedata.prestige_count = Math.max(0, Math.min(15, parse_int(save_data["prestige_count"], 0)));
       basedata.prestige_mult = Math.pow(2, basedata.prestige_count);
-      basedata.sliggoo_gpsmult = 1.0 + 0.1 * sliggoo.level;
-      bloon.level_cap = 1000 + goodra.level;
+      basedata.sliggoo_gpsmult = clamp_value(1.0 + 0.1 * sliggoo.level);
+      bloon.level_cap = Math.min(bloon.MAX_BLOON_LEVEL, 1000 + goodra.level);
       for (k = 0, len2 = generators.length; k < len2; k++) {
         generator = generators[k];
         if (save_data.generators[generator.name]) {
@@ -1670,7 +1759,7 @@
           generator.level = 1;
         }
         generator.cost = generator.buy_cost_for(generator.count);
-        generator.lvup_cost = generator.base_cost * 100 * Math.pow(1.35, generator.level - 1);
+        generator.lvup_cost = clamp_value(generator.base_cost * 100 * Math.pow(1.35, generator.level - 1));
       }
       recalc();
 // re-create the upgrade UI for upgrades restored as unlocked: it is only
@@ -1685,8 +1774,8 @@
       // clamps every tick to MAX_TICK_MS, so this is applied exactly once
       offline_ms = Math.min(Math.max(0, new Date().getTime() - save_ms), MAX_OFFLINE_MS);
       if (offline_ms > 0 && isFinite(basedata.gps) && isFinite(basedata.expps)) {
-        basedata.earn(basedata.gps * offline_ms / 1000);
-        bloon.gain_exp(basedata.expps * offline_ms / 1000);
+        basedata.earn(clamp_value(basedata.gps * (offline_ms / 1000)));
+        bloon.gain_exp(clamp_value(basedata.expps * (offline_ms / 1000)));
       }
       last_update_time.setTime(new Date().getTime());
       $("#settings_audio").prop("checked", settings.audio);
@@ -1728,17 +1817,17 @@
     save_time.setTime(parse_int(data[1], new Date().getTime()));
     save["save_time"] = save_time;
     d02_basedata = data[2].split("|");
-    save["play_time"] = parse_num(d02_basedata[0], -1);
-    save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0));
-    save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0));
-    save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0));
-    save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0));
-    save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0));
-    save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0));
+    save["play_time"] = clamp_finite(d02_basedata[0], -1, MAX_VALUE, -1);
+    save["total_play_time"] = clamp_finite(d02_basedata[1], 0, MAX_VALUE);
+    save["bloons"] = clamp_finite(d02_basedata[2], 0, MAX_VALUE);
+    save["total_bloons"] = clamp_finite(d02_basedata[3], 0, MAX_VALUE);
+    save["total_total_bloons"] = clamp_finite(d02_basedata[4], 0, MAX_VALUE);
+    save["clicks"] = clamp_finite(d02_basedata[5], 0, MAX_VALUE);
+    save["total_clicks"] = clamp_finite(d02_basedata[6], 0, MAX_VALUE);
     d03_bloonstats = data[3].split("|");
-    save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0));
-    save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0));
-    save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0));
+    save["bloon_exp"] = clamp_finite(d03_bloonstats[0], 0, MAX_EXP);
+    save["sliggoo_exp"] = clamp_finite(d03_bloonstats[1], 0, MAX_EXP);
+    save["goodra_exp"] = clamp_finite(d03_bloonstats[2], 0, MAX_EXP);
     generator_names = ["cursor", "monkey", "tackshooter", "snipermonkey", "bombshooter", "boomerangthrower", "gluegunner", "icetower", "ninjamonkey", "monkeybuccaneer", "monkeyapprentice", "monkeysub", "monkeyace", "spikefactory", "monkeyengineer", "supermonkey"];
     legacy_generator_names = ["cursor", "monkey", "daycare", "reserve", "farm", "fountain", "cave", "trench", "arceus", "rngabuser", "cloninglab", "church", "gcminer", "photoncollider", "monkeyengineer", "supermonkey"];
     gen_data = {};
@@ -1801,17 +1890,17 @@
     save_time.setTime(parse_int(data[1], new Date().getTime()));
     save["save_time"] = save_time;
     d02_basedata = data[2].split("|");
-    save["play_time"] = parse_num(d02_basedata[0], -1);
-    save["total_play_time"] = Math.max(0, parse_num(d02_basedata[1], 0));
-    save["bloons"] = Math.max(0, parse_num(d02_basedata[2], 0));
-    save["total_bloons"] = Math.max(0, parse_num(d02_basedata[3], 0));
-    save["total_total_bloons"] = Math.max(0, parse_num(d02_basedata[4], 0));
-    save["clicks"] = Math.max(0, parse_num(d02_basedata[5], 0));
-    save["total_clicks"] = Math.max(0, parse_num(d02_basedata[6], 0));
+    save["play_time"] = clamp_finite(d02_basedata[0], -1, MAX_VALUE, -1);
+    save["total_play_time"] = clamp_finite(d02_basedata[1], 0, MAX_VALUE);
+    save["bloons"] = clamp_finite(d02_basedata[2], 0, MAX_VALUE);
+    save["total_bloons"] = clamp_finite(d02_basedata[3], 0, MAX_VALUE);
+    save["total_total_bloons"] = clamp_finite(d02_basedata[4], 0, MAX_VALUE);
+    save["clicks"] = clamp_finite(d02_basedata[5], 0, MAX_VALUE);
+    save["total_clicks"] = clamp_finite(d02_basedata[6], 0, MAX_VALUE);
     d03_bloonstats = data[3].split("|");
-    save["bloon_exp"] = Math.max(0, parse_int(d03_bloonstats[0], 0));
-    save["sliggoo_exp"] = Math.max(0, parse_int(d03_bloonstats[1], 0));
-    save["goodra_exp"] = Math.max(0, parse_int(d03_bloonstats[2], 0));
+    save["bloon_exp"] = clamp_finite(d03_bloonstats[0], 0, MAX_EXP);
+    save["sliggoo_exp"] = clamp_finite(d03_bloonstats[1], 0, MAX_EXP);
+    save["goodra_exp"] = clamp_finite(d03_bloonstats[2], 0, MAX_EXP);
     generator_names = ["cursor", "monkey", "tackshooter", "snipermonkey", "bombshooter", "boomerangthrower", "gluegunner", "icetower", "ninjamonkey", "monkeybuccaneer", "monkeyapprentice", "monkeysub", "monkeyace", "spikefactory", "monkeyengineer", "supermonkey"];
     legacy_generator_names = ["cursor", "monkey", "daycare", "reserve", "farm", "fountain", "cave", "trench", "arceus", "rngabuser", "cloninglab", "church", "gcminer", "photoncollider", "monkeyengineer", "supermonkey"];
     gen_data = {};
@@ -1982,12 +2071,15 @@
   };
 
   update_all_numbers = function() {
-    var generator, gps_str, item, k, l, len2, len3;
+    var generator, gpc_str, gps_str, item, k, l, len2, len3;
     // updates numbers other than just Bloon count and related stats.
     update_numbers();
     gps_str = reprnum(Math.round(basedata.gps * 10) / 10, "medium");
     set_hud("gps", ".gps", gps_str);
     set_hud("stats_gps", "#stats_gps", gps_str);
+    gpc_str = reprnum(Math.round(basedata.gpc * 10) / 10, "medium");
+    set_hud("gpc", ".gpc", gpc_str);
+    set_hud("stats_gpc", "#stats_gpc", gpc_str);
     for (k = 0, len2 = generators.length; k < len2; k++) {
       generator = generators[k];
       set_hud(`${generator.name}_cost`, `#${generator.name}_cost`, reprnum(Math.floor(generator.cost), "short"));
@@ -2342,7 +2434,7 @@
   };
 
   recalc_gps = function() {
-    var item, k, l, len2, len3, len4, m, new_gps;
+    var global_mult, item, k, l, len2, len3, len4, len5, m, new_gps, o;
     // account for base gps upgrades first.
     gens["monkey"].base_gps = 1.0;
     if (items["ball01"].bought) {
@@ -2354,30 +2446,39 @@
     if (items["ball99"].bought) {
       gens["monkey"].base_gps += 100.0;
     }
+    // global production multipliers shared by every building
+    global_mult = clamp_value(basedata.sliggoo_gpsmult * basedata.raindance_mult * battle.bps_mult);
     for (k = 0, len2 = generators.length; k < len2; k++) {
       gen = generators[k];
       // reset the variables for calculation
-      gen.level_mult = Math.pow(1.3, gen.level - 1);
-      gen.gps = gen.base_gps * gen.level_mult;
+      gen.level_mult = clamp_value(Math.pow(1.3, gen.level - 1));
+      gen.gps = clamp_value(gen.base_gps * gen.level_mult);
     }
 // tiered generator upgrades
     for (l = 0, len3 = itemlist.length; l < len3; l++) {
       item = itemlist[l];
       if (item.bought && item.generator_name && gens[item.generator_name]) {
-        gens[item.generator_name].gps *= item.bps_mult;
+        gens[item.generator_name].gps = clamp_value(gens[item.generator_name].gps * item.bps_mult);
       }
     }
-    basedata.expps = 0.2 * gens["cursor"].count;
-    new_gps = 0;
+// the per-building BPS shown in tooltips must carry every multiplier,
+// prestige included, so it agrees with the total the HUD reports
     for (m = 0, len4 = generators.length; m < len4; m++) {
       gen = generators[m];
+      gen.gps = clamp_value(gen.gps * global_mult * basedata.prestige_mult);
+    }
+    // each cursor level adds +0.1 EXP/s per cursor on top of its 0.2 base
+    basedata.expps = clamp_value((0.2 + 0.1 * (gens["cursor"].level - 1)) * gens["cursor"].count);
+    new_gps = 0;
+    for (o = 0, len5 = generators.length; o < len5; o++) {
+      gen = generators[o];
       new_gps += gen.count * gen.gps;
     }
-    new_gps *= basedata.sliggoo_gpsmult;
-    new_gps *= basedata.prestige_mult;
-    new_gps *= basedata.raindance_mult;
-    new_gps *= battle.bps_mult;
-    return basedata.gps = new_gps;
+    basedata.gps = clamp_value(new_gps);
+    // prestige is an earnings multiplier only; boss fights channel the
+    // un-prestiged BPS into damage, so prestige cannot overboost the fight.
+    // prestige_mult is a power of two, so the division is exact.
+    return basedata.damage_gps = clamp_value(new_gps / basedata.prestige_mult);
   };
 
   recalc_gpc = function() {
@@ -2403,11 +2504,13 @@
       }
     }
     new_gpc *= Math.pow(1.1, gens["cursor"].level - 1);
-    new_gpc *= basedata.prestige_mult;
     new_gpc *= basedata.raindance_mult;
     new_gpc *= basedata.frenzy_clickmult;
     new_gpc *= battle.tap_mult;
-    return basedata.gpc = new_gpc;
+    basedata.bpc = clamp_value(new_gpc);
+    basedata.gpc = clamp_value(new_gpc * basedata.prestige_mult);
+    // same rule as BPS: boss taps use the un-prestiged click value
+    return basedata.damage_gpc = basedata.bpc;
   };
 
   SAVE_FORMAT_VERSION = "0.13";
@@ -2445,7 +2548,7 @@
       return;
     }
     save_conflict = true;
-    return $("#settings_save_status").html("Another tab saved progress. Reload to sync; autosaving is paused here so it cannot overwrite that save.");
+    return $("#settings_save_status").html("Autosave is OFF in this tab: another tab saved progress, so writing here would overwrite it. Press Save Now to keep this tab's progress, or reload to pick up the other tab's save.");
   });
 
   hexstr = "0123456789abcdef";
@@ -2633,7 +2736,7 @@
       this.cooldown_time = init_cooldown_time;
       if (this.effect === "bloons") {
         // award = 120 seconds of Bloon production + 200 clicks worth of Bloons
-        gain = basedata.gps * 120 + basedata.gpc * 200;
+        gain = clamp_value(basedata.gps * 120 + basedata.gpc * 200);
         shiny_plus_marker = new PlusMarker(`Bonus! +${reprnum(Math.floor(gain), "long")} Bloons!`, x, y, 3000);
         basedata.earn(gain);
         return gain;
@@ -2901,5 +3004,18 @@
   this.update_language = update_language;
 
   this.bitfield_to_sstr = bitfield_to_sstr;
+
+  // progression + math internals, exposed for debugging and tests
+  this.bloon = bloon;
+
+  this.battle = battle;
+
+  this.sliggoo = sliggoo;
+
+  this.goodra = goodra;
+
+  this.recalc = recalc;
+
+  this.clamp_value = clamp_value;
 
 }).call(this);
